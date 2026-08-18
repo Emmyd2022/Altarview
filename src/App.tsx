@@ -329,6 +329,7 @@ export default function App() {
       <StageControlScreen
         state={stageTimer}
         onOpenStageOutput={() => setScreen('stage')}
+        onPushToLive={(content) => setLiveContent(content)}
       />
     ),
   }

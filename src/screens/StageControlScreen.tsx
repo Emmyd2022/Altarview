@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { StageTimerState } from '../hooks/useStageTimer'
+import type { TimerDisplayContent } from './OutputStage'
 
 // ALT-018/019/021: this is where the operator actually drives the Stage
 // output from -- Start/Pause/Next/Previous/Stop, timer adjustment, and
@@ -8,9 +9,11 @@ import type { StageTimerState } from '../hooks/useStageTimer'
 export default function StageControlScreen({
   state,
   onOpenStageOutput,
+  onPushToLive,
 }: {
   state: StageTimerState
   onOpenStageOutput?: () => void
+  onPushToLive?: (content: TimerDisplayContent) => void
 }) {
   const [messageInput, setMessageInput] = useState('')
 
@@ -79,6 +82,35 @@ export default function StageControlScreen({
             }}
           >
             View Stage Output
+          </button>
+        )}
+        {/* ALT-040: push the countdown onto the audience/Live screen on demand
+            (e.g. a Sunday School countdown everyone should see), without this
+            being a permanent routing rule -- a one-off push, like Preview's
+            "Push to Live" action. */}
+        {onPushToLive && (
+          <button
+            onClick={() =>
+              onPushToLive({
+                type: 'timer',
+                sessionTitle: current.title,
+                remainingSeconds: remaining,
+                totalSeconds: current.durationMinutes * 60,
+              })
+            }
+            style={{
+              background: '#A8702E',
+              border: 'none',
+              borderRadius: 6,
+              padding: '4px 10px',
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#10160F',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            Push Countdown to Live →
           </button>
         )}
       </div>

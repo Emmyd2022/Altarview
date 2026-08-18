@@ -17,6 +17,7 @@ const TYPE_COLORS: Record<ResourceType, string> = {
   slide: '#8F9885',
   media: '#9A7AC9',
   combined: '#C08A44',
+  'up-next': '#6FC98A',
 }
 
 // ALT-022: Sessions are the top-level organizing unit; each session holds
@@ -125,10 +126,6 @@ export default function PlaylistScreen({
     })
   }
 
-  const flatResources = mode === 'resource'
-    ? sessions.flatMap((s) => s.resources.map((r) => ({ session: s, resource: r })))
-    : []
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
@@ -194,10 +191,10 @@ export default function PlaylistScreen({
             <div style={{ fontSize: 11, color: '#8F9885', marginBottom: 10, letterSpacing: '0.03em' }}>
               {mode === 'timed'
                 ? `${sessions.length} sessions \u2192 Stage Screen`
-                : `${flatResources.length} resources \u2192 Live (untimed)`}
+                : `${sessions.length} sessions \u2192 Live (untimed, same resources as Timed view)`}
             </div>
 
-            {mode === 'timed' ? (
+            {(
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {sessions.map((session) => (
                   <div
@@ -254,24 +251,30 @@ export default function PlaylistScreen({
                       <span style={{ fontSize: 10, color: '#3A4430' }}>
                         {session.resources.length} resource{session.resources.length === 1 ? '' : 's'}
                       </span>
-                      <input
-                        type="number"
-                        min={1}
-                        value={session.durationMinutes}
-                        onChange={(e) => updateSession(session.id, { durationMinutes: Math.max(1, Number(e.target.value)) })}
-                        style={{
-                          width: 44,
-                          background: '#10160F',
-                          border: '1px solid #2A331F',
-                          borderRadius: 5,
-                          padding: '3px 5px',
-                          fontSize: 11,
-                          color: '#EDEAE0',
-                          textAlign: 'center',
-                          fontFamily: 'inherit',
-                        }}
-                      />
-                      <span style={{ fontSize: 10, color: '#8F9885' }}>min</span>
+                      {/* ALT-039: duration only matters in Timed mode; Resource mode shows the same
+                          session grouping but without any timer fields */}
+                      {mode === 'timed' && (
+                        <>
+                          <input
+                            type="number"
+                            min={1}
+                            value={session.durationMinutes}
+                            onChange={(e) => updateSession(session.id, { durationMinutes: Math.max(1, Number(e.target.value)) })}
+                            style={{
+                              width: 44,
+                              background: '#10160F',
+                              border: '1px solid #2A331F',
+                              borderRadius: 5,
+                              padding: '3px 5px',
+                              fontSize: 11,
+                              color: '#EDEAE0',
+                              textAlign: 'center',
+                              fontFamily: 'inherit',
+                            }}
+                          />
+                          <span style={{ fontSize: 10, color: '#8F9885' }}>min</span>
+                        </>
+                      )}
                       <button
                         onClick={() => setAddTargetId(session.id)}
                         title="Set as add-target for the resource picker"
@@ -400,48 +403,6 @@ export default function PlaylistScreen({
                 >
                   + New Session
                 </button>
-              </div>
-            ) : (
-              // ALT-023: Resource playlist view -- flat, untimed, feeds Live directly.
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {flatResources.map(({ session, resource: r }) => (
-                  <div
-                    key={r.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      background: '#1B2318',
-                      border: '1px solid #2A331F',
-                      borderRadius: 6,
-                      padding: '8px 12px',
-                    }}
-                  >
-                    <TypeIcon type={r.type} color={TYPE_COLORS[r.type]} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 12, color: '#EDEAE0' }}>{r.title}</span>
-                      <span style={{ fontSize: 10, color: '#3A4430', marginLeft: 8 }}>({session.title})</span>
-                    </div>
-                    {onSendLive && (
-                      <button
-                        onClick={() => sendResourceToLive(r)}
-                        style={{
-                          fontSize: 10,
-                          padding: '4px 10px',
-                          borderRadius: 5,
-                          background: '#A8702E',
-                          border: 'none',
-                          color: '#10160F',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        Send to Live
-                      </button>
-                    )}
-                  </div>
-                ))}
               </div>
             )}
           </div>
@@ -573,6 +534,12 @@ function TypeIcon({ type, color }: { type: ResourceType; color: string }) {
       <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
         <rect x="1" y="2.5" width="11" height="8" rx="1.5" stroke={color} strokeWidth="1.2" />
         <path d="M5 5.5l4 2-4 2V5.5z" fill={color} />
+      </svg>
+    ),
+    'up-next': (
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+        <path d="M2.5 3l5 3.5-5 3.5V3z" fill={color} />
+        <path d="M9 3v7" stroke={color} strokeWidth="1.2" strokeLinecap="round" />
       </svg>
     ),
   }

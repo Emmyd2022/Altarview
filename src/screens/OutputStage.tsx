@@ -8,12 +8,24 @@
 // preset's black/white/gold look), not by the app's own control-panel
 // palette.
 
-export interface DisplayContent {
+export interface VerseDisplayContent {
   type: 'verse'
   ref: string
   translation: string
   text: string
 }
+
+// ALT-040: lets the operator push the Stage countdown onto the Live
+// output on demand (e.g. showing a Sunday School countdown to everyone),
+// without that being a permanent routing rule.
+export interface TimerDisplayContent {
+  type: 'timer'
+  sessionTitle: string
+  remainingSeconds: number
+  totalSeconds: number
+}
+
+export type DisplayContent = VerseDisplayContent | TimerDisplayContent
 
 export function OutputStage({
   content,
@@ -90,7 +102,7 @@ export function OutputStage({
       </div>
 
       {/* Content */}
-      {content ? (
+      {content?.type === 'verse' ? (
         <div
           style={{
             maxWidth: 800,
@@ -131,6 +143,8 @@ export function OutputStage({
 
           <div style={{ width: 48, height: 1, background: 'rgba(201,163,74,0.3)' }} />
         </div>
+      ) : content?.type === 'timer' ? (
+        <TimerDisplay content={content} />
       ) : (
         <div
           style={{
@@ -188,6 +202,56 @@ export function OutputStage({
         }}
       >
         {badgeLabel} output — 1920 × 1080
+      </div>
+    </div>
+  )
+}
+
+// ALT-040: renders the pushed Stage countdown when Live is showing the
+// timer instead of a verse -- same visual language (ring, big numerals)
+// as the Stage screen itself, so it reads consistently to the congregation.
+function TimerDisplay({ content }: { content: TimerDisplayContent }) {
+  const minutes = Math.floor(content.remainingSeconds / 60)
+  const seconds = content.remainingSeconds % 60
+  const progress = content.totalSeconds > 0 ? content.remainingSeconds / content.totalSeconds : 0
+  const radius = 130
+  const circumference = 2 * Math.PI * radius
+  const strokeDashoffset = circumference * (1 - progress)
+
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div
+        style={{
+          fontSize: 22,
+          fontWeight: 500,
+          color: 'rgba(255,255,255,0.55)',
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          fontFamily: 'Inter, Segoe UI, sans-serif',
+          marginBottom: 24,
+        }}
+      >
+        {content.sessionTitle}
+      </div>
+      <div style={{ position: 'relative', width: 260, height: 260, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <svg width="260" height="260" viewBox="0 0 280 280" style={{ position: 'absolute', transform: 'rotate(-90deg)' }}>
+          <circle cx="140" cy="140" r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="10" />
+          <circle
+            cx="140"
+            cy="140"
+            r={radius}
+            fill="none"
+            stroke="#A8702E"
+            strokeWidth="10"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dashoffset 1s linear' }}
+          />
+        </svg>
+        <div style={{ fontSize: 56, fontWeight: 300, color: '#A8702E', fontVariantNumeric: 'tabular-nums', fontFamily: 'Inter, Segoe UI, sans-serif' }}>
+          {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
+        </div>
       </div>
     </div>
   )

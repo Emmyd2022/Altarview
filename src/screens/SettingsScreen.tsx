@@ -1,6 +1,36 @@
 import { useState } from 'react'
 import { LANGUAGES, useLanguage, useT } from '../i18n'
 
+// ALT-041: output routing types/defaults.
+type OutputRole = 'live' | 'preview' | 'stage'
+interface OutputTarget {
+  id: string
+  label: string
+  kind: 'display' | 'ndi' | 'browser-link' | 'windowed'
+}
+const VIRTUAL_TARGETS: OutputTarget[] = [
+  { id: 'ndi', label: 'NDI Output (virtual)', kind: 'ndi' },
+  { id: 'browser-link', label: 'Browser Presentation Link (virtual)', kind: 'browser-link' },
+  { id: 'windowed', label: 'Windowed (no physical output)', kind: 'windowed' },
+]
+const DEFAULT_TARGETS: OutputTarget[] = [
+  { id: 'display-1', label: 'Primary Monitor (1920\u00d71080)', kind: 'display' },
+  { id: 'display-2', label: 'Display 2 (1920\u00d71080)', kind: 'display' },
+  { id: 'display-3', label: 'Display 3 (1920\u00d71080)', kind: 'display' },
+  ...VIRTUAL_TARGETS,
+]
+const ROLE_LABELS: Record<OutputRole, string> = {
+  live: 'Live (Audience)',
+  preview: 'Preview',
+  stage: 'Stage',
+}
+const KIND_ICON: Record<OutputTarget['kind'], string> = {
+  display: '🖥',
+  ndi: '📡',
+  'browser-link': '🔗',
+  windowed: '▢',
+}
+
 const TRANSLATIONS_LIST = [
   { code: 'NKJV', name: 'New King James Version', installed: true },
   { code: 'KJV', name: 'King James Version', installed: true },
@@ -26,6 +56,43 @@ export default function SettingsScreen() {
   // Control's join link (that one controls the service; this one displays
   // the Live output). See RemoteControlScreen.tsx for the other half.
   const [browserLinkEnabled, setBrowserLinkEnabled] = useState(true)
+  // ALT-041: output routing -- which physical/virtual target each screen
+  // role (Live/Preview/Stage) sends to. Modeled on ProPresenter's
+  // "Configure Screens" (per-role output picker: system displays, NDI,
+  // placeholder) and EasyWorship/EasyVerse's primary/secondary assignment.
+  const [outputTargets, setOutputTargets] = useState<OutputTarget[]>(DEFAULT_TARGETS)
+  const [assignments, setAssignments] = useState<Record<OutputRole, string>>({
+    live: 'display-2',
+    preview: 'windowed',
+    stage: 'display-3',
+  })
+  const [detecting, setDetecting] = useState(false)
+
+  async function detectScreens() {
+    setDetecting(true)
+    try {
+      // Real browser Window Management API where available (Chromium
+      // 100+, requires a permission prompt); falls back to a reasonable
+      // simulated pair of monitors everywhere else so the picker still
+      // works in this prototype/demo context.
+      const w = window as any
+      if (w.getScreenDetails) {
+        const details = await w.getScreenDetails()
+        const detected: OutputTarget[] = details.screens.map((s: any, i: number) => ({
+          id: `display-${i + 1}`,
+          label: `${i === 0 ? 'Primary' : `Display ${i + 1}`} (${s.width}\u00d7${s.height})`,
+          kind: 'display' as const,
+        }))
+        setOutputTargets([...detected, ...VIRTUAL_TARGETS])
+      } else {
+        setOutputTargets(DEFAULT_TARGETS)
+      }
+    } catch {
+      setOutputTargets(DEFAULT_TARGETS)
+    } finally {
+      setDetecting(false)
+    }
+  }
 
   function removeTranslation(code: string) {
     setTranslations((prev) =>
@@ -141,6 +208,89 @@ export default function SettingsScreen() {
                 </div>
               </div>
               <Toggle value={ndiEnabled} onChange={setNdiEnabled} />
+            </div>
+          </SettingsCard>
+
+          {/* ALT-041: Output Routing -- detect screens and assign each
+              output role (Live/Preview/Stage) to a target, modeled on
+              ProPresenter's Configure Screens / EasyWorship's primary-
+              secondary assignment. */}
+          <SettingsCard title="Output Routing">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <p style={{ fontSize: 11, color: '#8F9885', lineHeight: 1.5, margin: 0, maxWidth: 360 }}>
+                Assign each output to a physical monitor, NDI, or a windowed placeholder. Detecting real
+                screens needs the browser's screen-permission prompt; without it, a simulated multi-monitor
+                setup is shown so this still works everywhere.
+              </p>
+              <button
+                onClick={detectScreens}
+                disabled={detecting}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #2A331F',
+                  borderRadius: 6,
+                  padding: '6px 14px',
+                  fontSize: 11,
+                  color: detecting ? '#3A4430' : '#8F9885',
+                  cursor: detecting ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                }}
+                onMouseEnter={(e) => {
+                  if (!detecting) {
+                    e.currentTarget.style.borderColor = '#A8702E'
+                    e.currentTarget.style.color = '#A8702E'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!detecting) {
+                    e.currentTarget.style.borderColor = '#2A331F'
+                    e.currentTarget.style.color = '#8F9885'
+                  }
+                }}
+              >
+                {detecting ? 'Detecting…' : 'Detect Screens'}
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(Object.keys(ROLE_LABELS) as OutputRole[]).map((role) => (
+                <div
+                  key={role}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: '#10160F',
+                    border: '1px solid #2A331F',
+                    borderRadius: 6,
+                    padding: '8px 12px',
+                  }}
+                >
+                  <span style={{ fontSize: 12, color: '#EDEAE0', fontWeight: 500 }}>{ROLE_LABELS[role]}</span>
+                  <select
+                    value={assignments[role]}
+                    onChange={(e) => setAssignments((prev) => ({ ...prev, [role]: e.target.value }))}
+                    style={{
+                      background: '#1B2318',
+                      border: '1px solid #2A331F',
+                      borderRadius: 6,
+                      padding: '5px 9px',
+                      fontSize: 12,
+                      color: '#EDEAE0',
+                      outline: 'none',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {outputTargets.map((target) => (
+                      <option key={target.id} value={target.id} style={{ background: '#1B2318' }}>
+                        {KIND_ICON[target.kind]} {target.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
             </div>
           </SettingsCard>
 

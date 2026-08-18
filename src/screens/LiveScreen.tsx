@@ -15,12 +15,13 @@ export default function LiveScreen({
   onChangeTranslation?: (translation: string, text: string) => void
 }) {
   const [open, setOpen] = useState(false)
-  const variants = content ? availableTranslationsFor(content.ref) : []
+  const isVerse = content?.type === 'verse'
+  const variants = isVerse ? availableTranslationsFor(content.ref) : []
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <OutputStage content={content} badgeLabel="LIVE" badgeColor="#6FC98A" onExit={onExit} />
-      {content && variants.length > 0 && onChangeTranslation && (
+      {isVerse && variants.length > 0 && onChangeTranslation && (
         <div style={{ position: 'absolute', bottom: 28, left: 36, zIndex: 5 }}>
           <button
             onClick={() => setOpen((v) => !v)}

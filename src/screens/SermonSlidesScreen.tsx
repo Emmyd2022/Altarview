@@ -192,6 +192,10 @@ export default function SermonSlidesScreen() {
       {/* ALT-028: saved decks library panel */}
       {showLibrary && (
         <div style={{ borderBottom: '1px solid #2A331F', padding: 14, flexShrink: 0 }}>
+          <p style={{ fontSize: 11, color: '#8F9885', margin: '0 0 10px', lineHeight: 1.5 }}>
+            Save your current slides under a name so you can reuse this exact deck in a future service, instead
+            of rebuilding it from scratch. Click "Load" on a saved deck below to bring it back into the editor.
+          </p>
           <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
             <input
               value={deckName}

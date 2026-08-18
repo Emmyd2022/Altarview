@@ -284,8 +284,8 @@ export default function OperatorScreen({
                 <VerseCard
                   key={i}
                   verse={verse}
-                  isPreview={previewContent?.ref === verse.ref && previewContent?.translation === verse.translation}
-                  isLive={liveContent?.ref === verse.ref && liveContent?.translation === verse.translation}
+                  isPreview={previewContent?.type === 'verse' && previewContent.ref === verse.ref && previewContent.translation === verse.translation}
+                  isLive={liveContent?.type === 'verse' && liveContent.ref === verse.ref && liveContent.translation === verse.translation}
                   isPinned={isPinned(verse)}
                   onSendPreview={() => onSendPreview(verse)}
                   onSendLive={() => onSendLive(verse)}
@@ -572,7 +572,7 @@ function OutputBox({
           gap: 8,
         }}
       >
-        {content ? (
+        {content?.type === 'verse' ? (
           <>
             <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: 9, color: '#fff', textAlign: 'center', lineHeight: 1.55 }}>
               {content.text.length > 130 ? content.text.slice(0, 130) + '…' : content.text}
@@ -581,6 +581,15 @@ function OutputBox({
               {content.ref} ({content.translation})
             </div>
           </>
+        ) : content?.type === 'timer' ? (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 8, color: '#8F9885', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+              {content.sessionTitle}
+            </div>
+            <div style={{ fontFamily: 'Inter, Segoe UI, sans-serif', fontSize: 16, color: '#A8702E', fontVariantNumeric: 'tabular-nums' }}>
+              {String(Math.floor(content.remainingSeconds / 60)).padStart(2, '0')}:{String(content.remainingSeconds % 60).padStart(2, '0')}
+            </div>
+          </div>
         ) : (
           <div
             style={{
@@ -769,17 +778,36 @@ function VerseCard({
         onClick={onTogglePin}
         title={isPinned ? 'Unpin' : 'Pin for fast reference'}
         style={{
-          background: 'none',
-          border: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          background: isPinned ? 'rgba(168,112,46,0.14)' : 'transparent',
+          border: isPinned ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
+          borderRadius: 6,
           cursor: 'pointer',
-          padding: 2,
+          padding: '4px 8px',
           flexShrink: 0,
-          color: isPinned ? '#A8702E' : '#3A4430',
+          color: isPinned ? '#A8702E' : '#8F9885',
+          fontSize: 10,
+          fontFamily: 'inherit',
+        }}
+        onMouseEnter={(e) => {
+          if (!isPinned) {
+            e.currentTarget.style.borderColor = 'rgba(168,112,46,0.4)'
+            e.currentTarget.style.color = '#A8702E'
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!isPinned) {
+            e.currentTarget.style.borderColor = '#2A331F'
+            e.currentTarget.style.color = '#8F9885'
+          }
         }}
       >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill={isPinned ? 'currentColor' : 'none'}>
+        <svg width="12" height="12" viewBox="0 0 14 14" fill={isPinned ? 'currentColor' : 'none'}>
           <path d="M7 1.5l1.5 3.5 3.5.5-2.5 2.5.5 3.5L7 9.5 4 11.5l.5-3.5L2 5.5l3.5-.5L7 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
         </svg>
+        {isPinned ? 'Pinned' : 'Pin'}
       </button>
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: '#A8702E', marginBottom: 5 }}>

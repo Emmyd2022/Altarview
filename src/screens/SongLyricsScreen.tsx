@@ -251,7 +251,26 @@ export default function SongLyricsScreen() {
         <StatusPill />
         <div style={{ flex: 1 }} />
         {bulkSelect && selected.size > 0 && (
-          <span style={{ fontSize: 11, color: '#8F9885' }}>{selected.size} selected</span>
+          <>
+            <span style={{ fontSize: 11, color: '#8F9885' }}>{selected.size} selected</span>
+            <button
+              onClick={() => {
+                setSongs((prev) => prev.map((s) => (selected.has(s.id) ? { ...s, isHymn: true } : s)))
+              }}
+              style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              Mark as Hymn
+            </button>
+            <button
+              onClick={() => {
+                setSongs((prev) => prev.filter((s) => !selected.has(s.id)))
+                setSelected(new Set())
+              }}
+              style={{ background: 'transparent', border: '1px solid rgba(255,96,96,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: '#ff6060', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              Delete Selected
+            </button>
+          </>
         )}
         <button
           onClick={() => {

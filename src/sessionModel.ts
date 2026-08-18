@@ -5,7 +5,7 @@
 // on the session, not on individual resources, since it's the session as
 // a whole that the Stage countdown times.
 
-export type ResourceType = 'scripture' | 'song' | 'slide' | 'media' | 'combined'
+export type ResourceType = 'scripture' | 'song' | 'slide' | 'media' | 'combined' | 'up-next'
 
 export interface SessionResource {
   id: string
@@ -98,6 +98,15 @@ export const RESOURCE_LIBRARY: Record<Exclude<ResourceType, 'combined'>, { label
   media: [
     { label: 'Sermon (Pastor Adeyemi)', detail: 'Pastor John Adeyemi' },
     { label: 'Offering video' },
+  ],
+  // ALT-042: Up Next transitions are now an addable resource within a
+  // session's run, alongside scripture/song/slide/media -- e.g. dropping
+  // one in right before "Offering" plays the "UP NEXT \u2192 Offering"
+  // transition at that point in the run of service.
+  'up-next': [
+    { label: 'Up Next: Offering', detail: 'Gold Wipe style' },
+    { label: 'Up Next: Sermon', detail: 'Gold Wipe style' },
+    { label: 'Up Next: Praise & Worship', detail: 'Clean Slide style' },
   ],
 }
 
