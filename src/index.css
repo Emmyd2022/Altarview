@@ -1,0 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --color-bg-app: #10160F;
+  --color-bg-panel: #1B2318;
+  --color-border: #2A331F;
+  --color-text-primary: #EDEAE0;
+  --color-text-muted: #8F9885;
+  --color-gold: #A8702E;
+  --color-gold-dim: rgba(168,112,46, 0.12);
+  --color-gold-border: rgba(168,112,46, 0.35);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  background-color: #10160F;
+  color: #EDEAE0;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2A331F;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3A4430;
+}
