@@ -85,6 +85,14 @@ export function useStageTimer(items: ServiceSession[] = DEFAULT_SESSIONS) {
     setRunning(true)
   }
 
+  // ALT: Start Service on the Playlist screen -- resets to session 1 AND
+  // starts its countdown immediately, per the confirmed behavior (Option B).
+  function startFromBeginning() {
+    goTo(0)
+    setTimesUp(false)
+    setRunning(true)
+  }
+
   function pause() {
     setRunning(false)
     setFlashing(false) // ALT-020: pausing mid-flash cancels the auto-advance
@@ -120,6 +128,7 @@ export function useStageTimer(items: ServiceSession[] = DEFAULT_SESSIONS) {
     timesUp,
     message,
     start,
+    startFromBeginning,
     pause,
     stop,
     goToNext,

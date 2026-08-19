@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { OutputStage, type DisplayContent } from './OutputStage'
 import { availableTranslationsFor } from '../verseData'
+import type { ThemeDef } from '../themeModel'
 
 // ALT-025: translation switcher lives only on Live (not Preview, per the
 // spec) -- changing it re-renders the currently-live verse in the new
@@ -9,10 +10,12 @@ export default function LiveScreen({
   content,
   onExit,
   onChangeTranslation,
+  theme,
 }: {
   content: DisplayContent | null
   onExit?: () => void
   onChangeTranslation?: (translation: string, text: string) => void
+  theme?: ThemeDef | null
 }) {
   const [open, setOpen] = useState(false)
   const isVerse = content?.type === 'verse'
@@ -20,7 +23,7 @@ export default function LiveScreen({
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <OutputStage content={content} badgeLabel="LIVE" badgeColor="#6FC98A" onExit={onExit} />
+      <OutputStage content={content} badgeLabel="LIVE" badgeColor="#6FC98A" onExit={onExit} theme={theme} />
       {isVerse && variants.length > 0 && onChangeTranslation && (
         <div style={{ position: 'absolute', bottom: 28, left: 36, zIndex: 5 }}>
           <button

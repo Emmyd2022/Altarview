@@ -13,6 +13,8 @@ import SermonSlidesScreen from './screens/SermonSlidesScreen'
 import PlaylistScreen from './screens/PlaylistScreen'
 import TimerScreen from './screens/TimerScreen'
 import ThemesScreen from './screens/ThemesScreen'
+import { DEFAULT_THEMES, type ThemeDef } from './themeModel'
+import { DEFAULT_SONGS, type Song } from './songModel'
 import UpNextScreen from './screens/UpNextScreen'
 import MediaScreen from './screens/MediaScreen'
 import PluginsScreen from './screens/PluginsScreen'
@@ -265,11 +267,22 @@ export default function App() {
   // Stage timer both read/drive the same underlying data.
   const [sessions, setSessions] = useState<ServiceSession[]>(DEFAULT_SESSIONS)
   const stageTimer = useStageTimer(sessions)
+  // ALT-043: theme state lifted here so Live/Preview can render using
+  // whichever theme is marked active, instead of a hardcoded style.
+  const [themes, setThemes] = useState<ThemeDef[]>(DEFAULT_THEMES)
+  // ALT: songs lifted here so Song Lyrics and Service Playlist share the
+  // same real song/lyrics data -- lets Playlist look up a song's actual
+  // sections for inline verse/chorus navigation.
+  const [songs, setSongs] = useState<Song[]>(DEFAULT_SONGS)
+  const [activeThemeId, setActiveThemeId] = useState(
+    DEFAULT_THEMES.find((t) => t.category === 'Middle')?.id ?? DEFAULT_THEMES[0].id,
+  )
+  const activeTheme = themes.find((t) => t.id === activeThemeId) ?? null
 
   if (screen === 'preview') {
     return (
       <div style={{ width: '100vw', height: '100vh' }}>
-        <PreviewScreen content={previewContent} onExit={() => setScreen('operator')} />
+        <PreviewScreen content={previewContent} onExit={() => setScreen('operator')} theme={activeTheme} />
       </div>
     )
   }
@@ -282,6 +295,7 @@ export default function App() {
           onChangeTranslation={(translation, text) =>
             setLiveContent((prev) => (prev ? { ...prev, translation, text } : prev))
           }
+          theme={activeTheme}
         />
       </div>
     )
@@ -304,21 +318,52 @@ export default function App() {
         onPushToLive={() => setLiveContent(previewContent)}
         onClearPreview={() => setPreviewContent(null)}
         onClearLive={() => setLiveContent(null)}
+        onChangeLiveTranslation={(translation, text) =>
+          setLiveContent((prev) => (prev && prev.type === 'verse' ? { ...prev, translation, text } : prev))
+        }
+        onSetLiveSecondary={(translation, text) =>
+          setLiveContent((prev) =>
+            prev && prev.type === 'verse'
+              ? { ...prev, secondaryTranslation: translation ?? undefined, secondaryText: text ?? undefined }
+              : prev,
+          )
+        }
         onOpenPreview={() => setScreen('preview')}
         onOpenLive={() => setScreen('live')}
       />
     ),
-    songs: <SongLyricsScreen />,
-    slides: <SermonSlidesScreen />,
+    songs: (
+      <SongLyricsScreen
+        onSendPreview={(content) => setPreviewContent(content)}
+        onSendLive={(content) => setLiveContent(content)}
+        songs={songs}
+        onChangeSongs={setSongs}
+      />
+    ),
+    slides: <SermonSlidesScreen onSendLive={(content) => setLiveContent(content)} />,
     playlist: (
       <PlaylistScreen
         sessions={sessions}
         onChangeSessions={setSessions}
         onSendLive={(content) => setLiveContent(content)}
+        songs={songs}
+        onStartService={() => {
+          // Confirmed: Start Service only starts the countdown -- it does
+          // NOT force-navigate. The operator manages/watches it from
+          // Stage Control on their own terms, by clicking there themselves.
+          stageTimer.startFromBeginning()
+        }}
       />
     ),
     timer: <TimerScreen />,
-    themes: <ThemesScreen />,
+    themes: (
+      <ThemesScreen
+        themes={themes}
+        onChangeThemes={setThemes}
+        activeThemeId={activeThemeId}
+        onSetActive={setActiveThemeId}
+      />
+    ),
     'up-next': <UpNextScreen sessions={sessions} />,
     media: <MediaScreen onSendLive={(content) => setLiveContent(content)} />,
     plugins: <PluginsScreen />,

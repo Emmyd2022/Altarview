@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import type { DisplayContent } from './OutputStage'
 import { useT } from '../i18n'
+import { availableTranslationsFor } from '../verseData'
 
 const TRANSLATIONS = ['NKJV', 'KJV', 'NIV', 'ESV', 'AMP', 'ERV', 'MSG', 'NLT', 'Pidgin']
 
@@ -86,6 +87,8 @@ export default function OperatorScreen({
   onPushToLive,
   onClearPreview,
   onClearLive,
+  onChangeLiveTranslation,
+  onSetLiveSecondary,
   onOpenPreview,
   onOpenLive,
 }: {
@@ -96,6 +99,8 @@ export default function OperatorScreen({
   onPushToLive: () => void
   onClearPreview: () => void
   onClearLive: () => void
+  onChangeLiveTranslation?: (translation: string, text: string) => void
+  onSetLiveSecondary?: (translation: string | null, text: string | null) => void
   onOpenPreview?: () => void
   onOpenLive?: () => void
 }) {
@@ -339,7 +344,7 @@ export default function OperatorScreen({
           />
 
           {/* LIVE box */}
-          <OutputBox label={t.live} labelColor="#6FC98A" content={liveContent} onClear={onClearLive} />
+          <OutputBox label={t.live} labelColor="#6FC98A" content={liveContent} onClear={onClearLive} onChangeTranslation={onChangeLiveTranslation} onSetSecondary={onSetLiveSecondary} />
         </div>
 
         {/* Divider */}
@@ -545,13 +550,20 @@ function OutputBox({
   content,
   onClear,
   extraAction,
+  onChangeTranslation,
+  onSetSecondary,
 }: {
   label: string
   labelColor: string
   content: DisplayContent | null
   onClear: () => void
   extraAction?: { label: string; onClick: () => void }
+  onChangeTranslation?: (translation: string, text: string) => void
+  onSetSecondary?: (translation: string | null, text: string | null) => void
 }) {
+  const [showTranslations, setShowTranslations] = useState(false)
+  const isVerse = content?.type === 'verse'
+  const variants = isVerse ? availableTranslationsFor(content.ref) : []
   const t = useT()
   return (
     <div>
@@ -606,6 +618,116 @@ function OutputBox({
           </div>
         )}
       </div>
+      {/* ALT-fix: translation switcher, now reachable from Operator directly
+          (previously only existed on the fullscreen Live output). */}
+      {isVerse && variants.length > 0 && onChangeTranslation && (
+        <div style={{ position: 'relative', marginTop: 6 }}>
+          <button
+            onClick={() => setShowTranslations((v) => !v)}
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: '1px solid #2A331F',
+              borderRadius: 5,
+              padding: '4px 8px',
+              fontSize: 10,
+              color: '#8F9885',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            Translation: {content.translation || variants[0].translation} ▾
+          </button>
+          {showTranslations && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '110%',
+                left: 0,
+                right: 0,
+                background: '#1B2318',
+                border: '1px solid #2A331F',
+                borderRadius: 6,
+                overflow: 'hidden',
+                zIndex: 20,
+              }}
+            >
+              {variants.map((v) => (
+                <button
+                  key={v.translation}
+                  onClick={() => {
+                    onChangeTranslation(v.translation, v.text)
+                    setShowTranslations(false)
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    background: v.translation === content.translation ? 'rgba(168,112,46,0.15)' : 'transparent',
+                    border: 'none',
+                    padding: '6px 10px',
+                    fontSize: 11,
+                    color: v.translation === content.translation ? '#A8702E' : '#EDEAE0',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {v.translation}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* ALT-fix: compare-translations -- shows a second translation
+              stacked with the first when turned on (rendering already
+              existed in OutputStage; this is the missing operator control). */}
+          {onSetSecondary && (
+            <div style={{ marginTop: 6 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#8F9885', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!!content.secondaryText}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      const other = variants.find((v) => v.translation !== content.translation) ?? variants[0]
+                      onSetSecondary(other.translation, other.text)
+                    } else {
+                      onSetSecondary(null, null)
+                    }
+                  }}
+                  style={{ accentColor: '#A8702E' }}
+                />
+                Compare with a second translation
+              </label>
+              {content.secondaryText && (
+                <select
+                  value={content.secondaryTranslation}
+                  onChange={(e) => {
+                    const v = variants.find((x) => x.translation === e.target.value)
+                    if (v) onSetSecondary(v.translation, v.text)
+                  }}
+                  style={{
+                    width: '100%',
+                    marginTop: 4,
+                    background: '#10160F',
+                    border: '1px solid #2A331F',
+                    borderRadius: 5,
+                    padding: '3px 6px',
+                    fontSize: 10,
+                    color: '#EDEAE0',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {variants.filter((v) => v.translation !== content.translation).map((v) => (
+                    <option key={v.translation} value={v.translation} style={{ background: '#10160F' }}>
+                      {v.translation}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
         {content && (
           <button

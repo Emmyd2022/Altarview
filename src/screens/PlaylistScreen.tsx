@@ -8,6 +8,7 @@ import {
   type SessionResource,
 } from '../sessionModel'
 import type { DisplayContent } from './OutputStage'
+import { buildSlides, firstSlideIndexForSection, type Song } from '../songModel'
 
 type PlaylistMode = 'timed' | 'resource'
 
@@ -27,11 +28,24 @@ export default function PlaylistScreen({
   sessions,
   onChangeSessions,
   onSendLive,
+  onStartService,
+  songs,
 }: {
   sessions: ServiceSession[]
   onChangeSessions: (sessions: ServiceSession[]) => void
   onSendLive?: (content: DisplayContent) => void
+  onStartService?: () => void
+  songs?: Song[]
 }) {
+  // ALT: inline resource control -- when a song resource is active, the
+  // operator can select verse 1, verse 2, chorus, etc. directly from this
+  // screen, without switching to Song Lyrics.
+  const [activeResourceId, setActiveResourceId] = useState<string | null>(null)
+  const [resourceSlideIndex, setResourceSlideIndex] = useState(0)
+
+  function findSongByTitle(title: string): Song | undefined {
+    return songs?.find((s) => s.title === title)
+  }
   const [mode, setMode] = useState<PlaylistMode>('timed')
   const [expandedId, setExpandedId] = useState<string | null>(sessions[0]?.id ?? null)
   const [addTargetId, setAddTargetId] = useState<string | null>(sessions[0]?.id ?? null)
@@ -170,7 +184,10 @@ export default function PlaylistScreen({
               ))}
             </div>
             <button
-              onClick={() => setServiceStarted((v) => !v)}
+              onClick={() => {
+                setServiceStarted(true)
+                onStartService?.()
+              }}
               style={{
                 background: serviceStarted ? 'transparent' : '#A8702E',
                 border: serviceStarted ? '1px solid #2A331F' : 'none',
@@ -309,7 +326,9 @@ export default function PlaylistScreen({
                         ) : (
                           session.resources.map((r) => (
                             <div
-                              key={r.id}
+                              key={`wrap-${r.id}`}
+                            >
+                            <div
                               draggable
                               onDragStart={() => setDragResource({ sessionId: session.id, resourceId: r.id })}
                               onDragOver={(e) => {
@@ -348,30 +367,128 @@ export default function PlaylistScreen({
                                   )
                                 )}
                               </div>
-                              {onSendLive && (
-                                <button
-                                  onClick={() => sendResourceToLive(r)}
-                                  style={{
-                                    fontSize: 10,
-                                    padding: '3px 9px',
-                                    borderRadius: 5,
-                                    background: 'transparent',
-                                    border: '1px solid rgba(168,112,46,0.4)',
-                                    color: '#A8702E',
-                                    cursor: 'pointer',
-                                    fontFamily: 'inherit',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  Send to Live
-                                </button>
-                              )}
+                              {onSendLive && (() => {
+                                const linkedSong = (r.type === 'song' || r.type === 'combined') && r.songRef ? findSongByTitle(r.songRef) : undefined
+                                if (linkedSong) {
+                                  const isActive = activeResourceId === r.id
+                                  return (
+                                    <button
+                                      onClick={() => {
+                                        setActiveResourceId(r.id)
+                                        setResourceSlideIndex(0)
+                                        const s = buildSlides(linkedSong)[0]
+                                        if (s) onSendLive({ type: 'song', title: linkedSong.title, artist: linkedSong.artist, lines: s.lines })
+                                      }}
+                                      style={{
+                                        fontSize: 10,
+                                        padding: '3px 9px',
+                                        borderRadius: 5,
+                                        background: isActive ? '#A8702E' : 'transparent',
+                                        border: isActive ? 'none' : '1px solid rgba(168,112,46,0.4)',
+                                        color: isActive ? '#10160F' : '#A8702E',
+                                        fontWeight: isActive ? 600 : 400,
+                                        cursor: 'pointer',
+                                        fontFamily: 'inherit',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      {isActive ? 'Active' : 'Play'}
+                                    </button>
+                                  )
+                                }
+                                return (
+                                  <button
+                                    onClick={() => sendResourceToLive(r)}
+                                    style={{
+                                      fontSize: 10,
+                                      padding: '3px 9px',
+                                      borderRadius: 5,
+                                      background: 'transparent',
+                                      border: '1px solid rgba(168,112,46,0.4)',
+                                      color: '#A8702E',
+                                      cursor: 'pointer',
+                                      fontFamily: 'inherit',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    Send to Live
+                                  </button>
+                                )
+                              })()}
                               <button
                                 onClick={() => removeResource(session.id, r.id)}
                                 style={{ background: 'none', border: 'none', color: '#8F9885', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}
                               >
                                 ×
                               </button>
+                            </div>
+                            {/* ALT: inline verse/chorus navigation when this song resource is active */}
+                            {activeResourceId === r.id && (r.type === 'song' || r.type === 'combined') && r.songRef && findSongByTitle(r.songRef) && (() => {
+                              const linkedSong = findSongByTitle(r.songRef)!
+                              const slides = buildSlides(linkedSong)
+                              const slide = slides[resourceSlideIndex]
+                              if (!slide) return null
+                              return (
+                                <div style={{ marginLeft: 20, marginTop: 4, marginBottom: 4, padding: 8, background: '#10160F', border: '1px solid #2A331F', borderRadius: 6 }}>
+                                  <div style={{ fontSize: 10, color: '#8F9885', marginBottom: 6 }}>{slide.sectionLabel}</div>
+                                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+                                    {linkedSong.sections.map((sec, idx) => (
+                                      <button
+                                        key={idx}
+                                        onClick={() => {
+                                          const newIdx = firstSlideIndexForSection(slides, idx)
+                                          setResourceSlideIndex(newIdx)
+                                          const s = slides[newIdx]
+                                          if (s) onSendLive?.({ type: 'song', title: linkedSong.title, artist: linkedSong.artist, lines: s.lines })
+                                        }}
+                                        style={{
+                                          fontSize: 9,
+                                          padding: '2px 7px',
+                                          borderRadius: 4,
+                                          background: slide.sectionIndex === idx ? 'rgba(168,112,46,0.15)' : '#1B2318',
+                                          border: slide.sectionIndex === idx ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
+                                          color: slide.sectionIndex === idx ? '#A8702E' : '#8F9885',
+                                          cursor: 'pointer',
+                                          fontFamily: 'inherit',
+                                        }}
+                                      >
+                                        {sec.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 6 }}>
+                                    <button
+                                      onClick={() => {
+                                        if (resourceSlideIndex > 0) {
+                                          const newIdx = resourceSlideIndex - 1
+                                          setResourceSlideIndex(newIdx)
+                                          const s = slides[newIdx]
+                                          if (s) onSendLive?.({ type: 'song', title: linkedSong.title, artist: linkedSong.artist, lines: s.lines })
+                                        }
+                                      }}
+                                      disabled={resourceSlideIndex === 0}
+                                      style={{ fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'transparent', border: '1px solid #2A331F', color: resourceSlideIndex === 0 ? '#3A4430' : '#8F9885', cursor: resourceSlideIndex === 0 ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                                    >
+                                      ← Prev
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (resourceSlideIndex < slides.length - 1) {
+                                          const newIdx = resourceSlideIndex + 1
+                                          setResourceSlideIndex(newIdx)
+                                          const s = slides[newIdx]
+                                          if (s) onSendLive?.({ type: 'song', title: linkedSong.title, artist: linkedSong.artist, lines: s.lines })
+                                        }
+                                      }}
+                                      disabled={resourceSlideIndex === slides.length - 1}
+                                      style={{ fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'transparent', border: '1px solid #2A331F', color: resourceSlideIndex === slides.length - 1 ? '#3A4430' : '#8F9885', cursor: resourceSlideIndex === slides.length - 1 ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                                    >
+                                      Next →
+                                    </button>
+                                  </div>
+                                </div>
+                              )
+                            })()}
                             </div>
                           ))
                         )}

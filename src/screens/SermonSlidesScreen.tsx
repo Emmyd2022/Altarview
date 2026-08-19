@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { DisplayContent } from './OutputStage'
 
 interface Slide {
   id: number
@@ -34,9 +35,17 @@ const INITIAL_SAVED_DECKS: SavedDeck[] = [
   },
 ]
 
-export default function SermonSlidesScreen() {
+export default function SermonSlidesScreen({
+  onSendLive,
+}: {
+  onSendLive?: (content: DisplayContent) => void
+} = {}) {
   const [slides, setSlides] = useState(INITIAL_SLIDES)
   const [activeId, setActiveId] = useState(1)
+  // ALT: when broadcasting, selecting any slide immediately sends it to
+  // Live -- paging through slides updates the congregation screen live,
+  // independent of the service playlist entirely.
+  const [broadcasting, setBroadcasting] = useState(false)
   const [editing, setEditing] = useState(false)
   const [align, setAlign] = useState<'left' | 'center' | 'right'>('center')
   const [bold, setBold] = useState(false)
@@ -119,6 +128,45 @@ export default function SermonSlidesScreen() {
           <ImportBtn label="Import Word" onClick={() => importFrom('Word')} />
         </div>
         <div style={{ flex: 1 }} />
+        {/* ALT: send directly to Live, independent of the service playlist */}
+        {onSendLive && (
+          <>
+            <button
+              onClick={() => setBroadcasting((v) => !v)}
+              title="When on, selecting any slide sends it to Live immediately"
+              style={{
+                background: broadcasting ? '#A8702E' : 'transparent',
+                border: broadcasting ? 'none' : '1px solid #2A331F',
+                borderRadius: 6,
+                padding: '4px 10px',
+                fontSize: 11,
+                fontWeight: broadcasting ? 600 : 400,
+                color: broadcasting ? '#10160F' : '#8F9885',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              {broadcasting ? '● Live' : 'Go Live'}
+            </button>
+            {!broadcasting && (
+              <button
+                onClick={() => onSendLive({ type: 'slide', text: activeSlide.text })}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(168,112,46,0.4)',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  color: '#A8702E',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Send to Live
+              </button>
+            )}
+          </>
+        )}
         {/* ALT-028: saved deck library */}
         <button
           onClick={() => setShowLibrary(!showLibrary)}
@@ -290,7 +338,10 @@ export default function SermonSlidesScreen() {
           {slides.map((slide, i) => (
             <div
               key={slide.id}
-              onClick={() => setActiveId(slide.id)}
+              onClick={() => {
+                setActiveId(slide.id)
+                if (broadcasting && onSendLive) onSendLive({ type: 'slide', text: slide.text })
+              }}
               style={{
                 cursor: 'pointer',
                 position: 'relative',

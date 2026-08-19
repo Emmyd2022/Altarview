@@ -1,22 +1,7 @@
 import { useState } from 'react'
+import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song } from '../songModel'
+import type { DisplayContent } from './OutputStage'
 
-interface Song {
-  id: string
-  title: string
-  artist: string
-  source: 'Imported' | 'Online'
-  isHymn: boolean
-  linesPerSlide: number
-}
-
-const SONGS: Song[] = [
-  { id: '1', title: 'Amazing Grace', artist: 'John Newton', source: 'Imported', isHymn: true, linesPerSlide: 2 },
-  { id: '2', title: 'Great Is Thy Faithfulness', artist: 'Thomas O. Chisholm', source: 'Imported', isHymn: true, linesPerSlide: 2 },
-  { id: '3', title: 'Way Maker', artist: 'Sinach', source: 'Online', isHymn: false, linesPerSlide: 2 },
-  { id: '4', title: 'Holy, Holy, Holy', artist: 'Reginald Heber', source: 'Imported', isHymn: true, linesPerSlide: 2 },
-  { id: '5', title: 'Oceans (Where Feet May Fail)', artist: 'Hillsong UNITED', source: 'Online', isHymn: false, linesPerSlide: 2 },
-  { id: '6', title: 'This Is Amazing Grace', artist: 'Phil Wickham', source: 'Online', isHymn: false, linesPerSlide: 2 },
-]
 
 // ALT-011: sample duplicate-detection result -- in the real app this
 // would be computed by comparing titles/lyrics across the library.
@@ -176,11 +161,31 @@ function MergeCandidateRow({
   )
 }
 
-export default function SongLyricsScreen() {
+export default function SongLyricsScreen({
+  onSendPreview,
+  onSendLive,
+  songs: songsProp,
+  onChangeSongs,
+}: {
+  onSendPreview?: (content: DisplayContent) => void
+  onSendLive?: (content: DisplayContent) => void
+  songs?: Song[]
+  onChangeSongs?: (songs: Song[]) => void
+} = {}) {
+  // ALT: Now Playing state -- which song/slide is currently active for
+  // navigation (Next/Previous/section-jump) and sending to Preview/Live.
+  const [nowPlayingId, setNowPlayingId] = useState<string | null>(null)
+  const [slideIndex, setSlideIndex] = useState(0)
   const [query, setQuery] = useState('')
   const [bulkSelect, setBulkSelect] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [songs, setSongs] = useState(SONGS)
+  const [localSongs, setLocalSongs] = useState(DEFAULT_SONGS)
+  const songs = songsProp ?? localSongs
+  function setSongs(updater: Song[] | ((prev: Song[]) => Song[])) {
+    const next = typeof updater === 'function' ? (updater as (prev: Song[]) => Song[])(songs) : updater
+    if (onChangeSongs) onChangeSongs(next)
+    else setLocalSongs(next)
+  }
   const [tab, setTab] = useState<LibraryTab>('All Songs')
   const [showQuickEntry, setShowQuickEntry] = useState(false)
   const [quickEntryText, setQuickEntryText] = useState('')
@@ -206,6 +211,67 @@ export default function SongLyricsScreen() {
     })
   }
 
+  // ALT: simulated auto-detection -- real detection needs the Deepgram
+  // audio pipeline from the project plan (backend work outside this
+  // frontend prototype). This simulates the same *logic*: check the local
+  // song database first, and if there's no match, report that an online
+  // lookup would run next (no real online lookup exists here).
+  const [autoDetectOn, setAutoDetectOn] = useState(false)
+  const [simulatedInput, setSimulatedInput] = useState('')
+  const [detectStatus, setDetectStatus] = useState<'idle' | 'checking' | 'matched' | 'no-match'>('idle')
+
+  function runDetection(text: string) {
+    setSimulatedInput(text)
+    if (!text.trim()) {
+      setDetectStatus('idle')
+      return
+    }
+    setDetectStatus('checking')
+    const needle = text.trim().toLowerCase()
+    for (const song of songs) {
+      for (const section of song.sections) {
+        const lineIdx = section.lines.findIndex((l) => l.toLowerCase().includes(needle))
+        if (lineIdx !== -1) {
+          const songSlides = buildSlides(song)
+          const matchIdx = songSlides.findIndex(
+            (sl) => sl.sectionIndex === song.sections.indexOf(section) && sl.lines.some((l) => l.toLowerCase().includes(needle)),
+          )
+          setNowPlayingId(song.id)
+          setSlideIndex(matchIdx === -1 ? 0 : matchIdx)
+          setDetectStatus('matched')
+          return
+        }
+      }
+    }
+    // Not found locally -- this is where a real online lookup would run.
+    setDetectStatus('no-match')
+  }
+
+  const nowPlayingSong = songs.find((s) => s.id === nowPlayingId) ?? null
+  const slides = nowPlayingSong ? buildSlides(nowPlayingSong) : []
+  const currentSlide = slides[slideIndex] ?? null
+
+  function playSong(song: Song) {
+    setNowPlayingId(song.id)
+    setSlideIndex(0)
+  }
+
+  function slideToContent(song: Song, slideLines: string[]): DisplayContent {
+    return { type: 'song', title: song.title, artist: song.artist, lines: slideLines }
+  }
+
+  function goNextSlide() {
+    if (slideIndex < slides.length - 1) setSlideIndex(slideIndex + 1)
+  }
+
+  function goPreviousSlide() {
+    if (slideIndex > 0) setSlideIndex(slideIndex - 1)
+  }
+
+  function jumpToSection(sectionIndex: number) {
+    setSlideIndex(firstSlideIndexForSection(slides, sectionIndex))
+  }
+
   function updateLinesPerSlide(id: string, lines: number) {
     setSongs((prev) => prev.map((s) => (s.id === id ? { ...s, linesPerSlide: Math.max(1, lines) } : s)))
   }
@@ -221,6 +287,7 @@ export default function SongLyricsScreen() {
         source: 'Imported',
         isHymn: false,
         linesPerSlide: 2,
+        sections: parsedPreview.map((s) => ({ label: s.section, lines: s.lines })),
       },
     ])
     setQuickEntryTitle('')
@@ -385,6 +452,138 @@ export default function SongLyricsScreen() {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+        {/* ALT: AI auto-detection (simulated) -- since there's no real
+            mic/audio input in this prototype, a text field stands in for
+            "what's being sung." Real detection needs the Deepgram audio
+            pipeline from the project plan. */}
+        <div style={{ background: '#1B2318', border: '1px solid #2A331F', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: autoDetectOn ? 10 : 0, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={autoDetectOn}
+              onChange={(e) => {
+                setAutoDetectOn(e.target.checked)
+                if (!e.target.checked) {
+                  setSimulatedInput('')
+                  setDetectStatus('idle')
+                }
+              }}
+              style={{ accentColor: '#A8702E' }}
+            />
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#EDEAE0' }}>AI auto-detect (simulated)</span>
+            <span style={{ fontSize: 10, color: '#3A4430' }}>-- checks local database, then would check online</span>
+          </label>
+
+          {autoDetectOn && (
+            <>
+              <input
+                value={simulatedInput}
+                onChange={(e) => runDetection(e.target.value)}
+                placeholder="Simulate what is being sung, e.g. amazing grace how sweet"
+                style={{
+                  width: '100%',
+                  background: '#10160F',
+                  border: '1px solid #2A331F',
+                  borderRadius: 6,
+                  padding: '8px 12px',
+                  fontSize: 12,
+                  color: '#EDEAE0',
+                  outline: 'none',
+                  fontFamily: 'inherit',
+                  boxSizing: 'border-box',
+                  marginBottom: 8,
+                }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                <div
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: detectStatus === 'matched' ? '#6FC98A' : detectStatus === 'no-match' ? '#ff6060' : detectStatus === 'checking' ? '#A8702E' : '#3A4430',
+                  }}
+                />
+                <span style={{ color: '#8F9885' }}>
+                  {detectStatus === 'idle' && 'Waiting for input...'}
+                  {detectStatus === 'checking' && 'Checking local database...'}
+                  {detectStatus === 'matched' && `Matched locally -- now playing "${nowPlayingSong?.title}"`}
+                  {detectStatus === 'no-match' && 'Not found locally -- would check online next (no online lookup in this prototype)'}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ALT: Now Playing panel -- current slide, section jump, Next/Previous, Send to Preview/Live */}
+        {nowPlayingSong && currentSlide && (
+          <div style={{ background: '#1B2318', border: '1px solid rgba(168,112,46,0.3)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#EDEAE0' }}>
+                Now Playing: {nowPlayingSong.title} <span style={{ color: '#8F9885', fontWeight: 400 }}>({currentSlide.sectionLabel})</span>
+              </div>
+              <button
+                onClick={() => setNowPlayingId(null)}
+                style={{ background: 'transparent', border: 'none', color: '#8F9885', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}
+              >
+                Stop
+              </button>
+            </div>
+
+            <div style={{ background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: 12, marginBottom: 10 }}>
+              {currentSlide.lines.map((line, i) => (
+                <div key={i} style={{ fontSize: 13, color: '#EDEAE0', lineHeight: 1.7 }}>{line}</div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+              {nowPlayingSong.sections.map((sec, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => jumpToSection(idx)}
+                  style={{
+                    background: currentSlide.sectionIndex === idx ? 'rgba(168,112,46,0.15)' : '#10160F',
+                    border: currentSlide.sectionIndex === idx ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
+                    borderRadius: 5,
+                    padding: '4px 10px',
+                    fontSize: 10,
+                    color: currentSlide.sectionIndex === idx ? '#A8702E' : '#8F9885',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {sec.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={goPreviousSlide} disabled={slideIndex === 0} style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '6px 12px', fontSize: 11, color: slideIndex === 0 ? '#3A4430' : '#8F9885', cursor: slideIndex === 0 ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+                ← Previous
+              </button>
+              <button onClick={goNextSlide} disabled={slideIndex === slides.length - 1} style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '6px 12px', fontSize: 11, color: slideIndex === slides.length - 1 ? '#3A4430' : '#8F9885', cursor: slideIndex === slides.length - 1 ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+                Next →
+              </button>
+              <div style={{ flex: 1 }} />
+              {onSendPreview && (
+                <button
+                  onClick={() => onSendPreview(slideToContent(nowPlayingSong, currentSlide.lines))}
+                  style={{ background: 'transparent', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#A8702E', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  Send to Preview
+                </button>
+              )}
+              {onSendLive && (
+                <button
+                  onClick={() => onSendLive(slideToContent(nowPlayingSong, currentSlide.lines))}
+                  style={{ background: '#A8702E', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  Send to Live
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ALT-012: Hymns grouped separately but one tab away */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
           {(['All Songs', 'Hymns'] as LibraryTab[]).map((t) => (
@@ -678,6 +877,24 @@ export default function SongLyricsScreen() {
               >
                 {song.source}
               </span>
+              {!bulkSelect && (
+                <button
+                  onClick={() => playSong(song)}
+                  style={{
+                    background: nowPlayingId === song.id ? 'rgba(168,112,46,0.15)' : 'transparent',
+                    border: nowPlayingId === song.id ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
+                    borderRadius: 5,
+                    padding: '4px 10px',
+                    fontSize: 10,
+                    color: nowPlayingId === song.id ? '#A8702E' : '#8F9885',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    flexShrink: 0,
+                  }}
+                >
+                  {nowPlayingId === song.id ? 'Now Playing' : 'Play'}
+                </button>
+              )}
               {!bulkSelect && (
                 <button
                   style={{

@@ -22,11 +22,24 @@ const FONT_OPTIONS = [
   '"Open Sans", sans-serif',
 ]
 
-export default function ThemesScreen() {
+// ALT-043: theme state lifted to App.tsx so the actual Live/Preview output
+// can render using whichever theme is marked "active" -- previously the
+// Theme Editor only edited themes in isolation with no connection to what
+// the congregation actually saw.
+export default function ThemesScreen({
+  themes,
+  onChangeThemes,
+  activeThemeId,
+  onSetActive,
+}: {
+  themes: ThemeDef[]
+  onChangeThemes: (themes: ThemeDef[]) => void
+  activeThemeId: string
+  onSetActive: (id: string) => void
+}) {
   const [category, setCategory] = useState<Category>('Lower Third')
-  const [themes, setThemes] = useState<ThemeDef[]>(DEFAULT_THEMES)
   const [selectedId, setSelectedId] = useState(
-    DEFAULT_THEMES.find((t) => t.category === 'Lower Third')!.id,
+    themes.find((t) => t.category === 'Lower Third')?.id ?? themes[0].id,
   )
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
 
@@ -35,12 +48,12 @@ export default function ThemesScreen() {
   const layer = theme?.layers.find((l) => l.id === selectedLayerId) ?? null
 
   function updateTheme(patch: Partial<ThemeDef>) {
-    setThemes((prev) => prev.map((t) => (t.id === theme.id ? { ...t, ...patch } : t)))
+    onChangeThemes(themes.map((t) => (t.id === theme.id ? { ...t, ...patch } : t)))
   }
 
   function updateLayer(layerId: string, patch: Partial<Layer>) {
-    setThemes((prev) =>
-      prev.map((t) =>
+    onChangeThemes(
+      themes.map((t) =>
         t.id === theme.id
           ? { ...t, layers: t.layers.map((l) => (l.id === layerId ? { ...l, ...patch } : l)) }
           : t,
@@ -69,20 +82,20 @@ export default function ThemesScreen() {
   function saveAsNew() {
     const copy = cloneTheme(theme, true)
     copy.name = `${theme.name} Copy`
-    setThemes((prev) => [...prev, copy])
+    onChangeThemes([...themes, copy])
     setSelectedId(copy.id)
   }
 
   function buildFromScratch() {
     const t = newBlankTheme(category)
-    setThemes((prev) => [...prev, t])
+    onChangeThemes([...themes, t])
     setSelectedId(t.id)
     setSelectedLayerId(null)
   }
 
   function deleteCustomTheme() {
     if (!theme.isCustom) return
-    setThemes((prev) => prev.filter((t) => t.id !== theme.id))
+    onChangeThemes(themes.filter((t) => t.id !== theme.id))
     const remaining = themes.filter((t) => t.category === category && t.id !== theme.id)
     if (remaining[0]) setSelectedId(remaining[0].id)
   }
@@ -154,15 +167,41 @@ export default function ThemesScreen() {
                   alignItems: 'center',
                 }}
               >
-                {t.name}
-                {t.isCustom && (
-                  <span style={{ fontSize: 9, color: '#3A4430', border: '1px solid #2A331F', borderRadius: 4, padding: '0 4px' }}>
-                    custom
-                  </span>
-                )}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t.id === activeThemeId && (
+                    <span title="Active theme — this is what Live/Preview actually use" style={{ color: '#6FC98A', fontSize: 12 }}>
+                      ●
+                    </span>
+                  )}
+                  {t.name}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {t.isCustom && (
+                    <span style={{ fontSize: 9, color: '#3A4430', border: '1px solid #2A331F', borderRadius: 4, padding: '0 4px' }}>
+                      custom
+                    </span>
+                  )}
+                  {t.id !== activeThemeId && (
+                    <span
+                      role="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onSetActive(t.id)
+                      }}
+                      style={{ fontSize: 9, color: '#A8702E', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 4, padding: '2px 6px', cursor: 'pointer' }}
+                    >
+                      Set Active
+                    </span>
+                  )}
+                </span>
               </button>
             ))}
           </div>
+          {activeThemeId && (
+            <p style={{ fontSize: 10, color: '#3A4430', margin: '0 0 12px' }}>
+              The <span style={{ color: '#6FC98A' }}>●</span> green dot marks the theme currently live on Live/Preview output, regardless of category.
+            </p>
+          )}
           <button
             onClick={buildFromScratch}
             style={{
