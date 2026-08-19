@@ -69,11 +69,6 @@ export default function StageScreen({
         >
           {current.title}
         </div>
-        {current.resources.length > 0 && (
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
-            {current.resources.length} resource{current.resources.length === 1 ? '' : 's'} in this session
-          </div>
-        )}
       </div>
 
       {/* Timer fills the rest of the screen -- much larger than the header, per ALT-018 */}

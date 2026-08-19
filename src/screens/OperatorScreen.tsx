@@ -2,6 +2,18 @@ import { useState, type ReactNode } from 'react'
 import type { DisplayContent } from './OutputStage'
 import { useT } from '../i18n'
 import { availableTranslationsFor } from '../verseData'
+import SongLyricsScreen from './SongLyricsScreen'
+import SermonSlidesScreen from './SermonSlidesScreen'
+import TimerScreen from './TimerScreen'
+import UpNextScreen from './UpNextScreen'
+import type { Song } from '../songModel'
+import type { ServiceSession } from '../sessionModel'
+
+// ALT: unified Operator screen -- Scripture, Songs, Slides, Timer, and Up
+// Next are pages within this one screen instead of separate top-level
+// screens, so the Preview/Live/Pinned panel on the right stays visible no
+// matter which page is showing.
+export type OperatorPage = 'scripture' | 'songs' | 'slides' | 'timer' | 'up-next'
 
 const TRANSLATIONS = ['NKJV', 'KJV', 'NIV', 'ESV', 'AMP', 'ERV', 'MSG', 'NLT', 'Pidgin']
 
@@ -80,6 +92,8 @@ function verseToContent(v: Verse): DisplayContent {
 // so the Operator screen and the two output screens share the same state
 // instead of Operator only ever driving one hardcoded output.
 export default function OperatorScreen({
+  page,
+  onChangePage,
   previewContent,
   liveContent,
   onSendPreview,
@@ -91,7 +105,14 @@ export default function OperatorScreen({
   onSetLiveSecondary,
   onOpenPreview,
   onOpenLive,
+  songs,
+  onChangeSongs,
+  onSendPreviewContent,
+  onSendLiveContent,
+  sessions,
 }: {
+  page: OperatorPage
+  onChangePage: (page: OperatorPage) => void
   previewContent: DisplayContent | null
   liveContent: DisplayContent | null
   onSendPreview: (v: Verse) => void
@@ -103,6 +124,11 @@ export default function OperatorScreen({
   onSetLiveSecondary?: (translation: string | null, text: string | null) => void
   onOpenPreview?: () => void
   onOpenLive?: () => void
+  songs?: Song[]
+  onChangeSongs?: (songs: Song[]) => void
+  onSendPreviewContent?: (content: DisplayContent) => void
+  onSendLiveContent?: (content: DisplayContent) => void
+  sessions?: ServiceSession[]
 }) {
   const t = useT()
   const [query, setQuery] = useState('')
@@ -168,15 +194,44 @@ export default function OperatorScreen({
             flexShrink: 0,
           }}
         >
-          <span style={{ fontWeight: 600, fontSize: 13, color: '#EDEAE0', letterSpacing: '0.02em' }}>
-            {t.operator}
-          </span>
+          {/* ALT: page tabs replace the static "Operator" title -- Scripture is
+              the default page; Songs/Slides/Timer/Up Next are now pages here
+              instead of separate top-level screens. */}
+          <div style={{ display: 'flex', gap: 2 }}>
+            {([
+              ['scripture', 'Scripture'],
+              ['songs', 'Songs'],
+              ['slides', 'Slides'],
+              ['timer', 'Timer'],
+              ['up-next', 'Up Next'],
+            ] as [OperatorPage, string][]).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => onChangePage(id)}
+                style={{
+                  background: page === id ? 'rgba(168,112,46,0.14)' : 'transparent',
+                  border: page === id ? '1px solid rgba(168,112,46,0.4)' : '1px solid transparent',
+                  borderRadius: 6,
+                  padding: '5px 11px',
+                  fontSize: 12,
+                  fontWeight: page === id ? 600 : 500,
+                  color: page === id ? '#A8702E' : '#8F9885',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <StatusPill />
           <div style={{ flex: 1 }} />
           {onOpenPreview && <TopBarLinkBtn onClick={onOpenPreview} label={t.viewPreview} />}
           {onOpenLive && <TopBarLinkBtn onClick={onOpenLive} label={t.viewLive} />}
         </div>
 
+        {page === 'scripture' && (
+        <>
         {/* Search + controls */}
         <div style={{ padding: '14px 20px 0 20px', display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -300,6 +355,36 @@ export default function OperatorScreen({
             </div>
           )}
         </div>
+        </>
+        )}
+
+        {/* ALT: other pages -- each keeps its own internal toolbar/layout,
+            embedded here instead of being a separate top-level screen. */}
+        {page === 'songs' && (
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <SongLyricsScreen
+              onSendPreview={onSendPreviewContent}
+              onSendLive={onSendLiveContent}
+              songs={songs}
+              onChangeSongs={onChangeSongs}
+            />
+          </div>
+        )}
+        {page === 'slides' && (
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <SermonSlidesScreen onSendLive={onSendLiveContent} />
+          </div>
+        )}
+        {page === 'timer' && (
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <TimerScreen />
+          </div>
+        )}
+        {page === 'up-next' && (
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <UpNextScreen sessions={sessions ?? []} />
+          </div>
+        )}
       </div>
 
       {/* Right sidebar */}
@@ -413,50 +498,6 @@ export default function OperatorScreen({
               ))}
             </div>
           )}
-        </div>
-
-        {/* Divider */}
-        <div style={{ height: 1, background: '#2A331F', margin: '0 14px' }} />
-
-        {/* Up Next */}
-        <div style={{ padding: '12px 14px' }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              color: '#8F9885',
-              textTransform: 'uppercase',
-              marginBottom: 8,
-            }}
-          >
-            Up Next
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {UP_NEXT.map((item, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 7,
-                  padding: '6px 9px',
-                  background: '#10160F',
-                  border: '1px solid #2A331F',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                }}
-              >
-                <span style={{ fontSize: 9, color: '#3A4430', fontWeight: 600, minWidth: 14 }}>
-                  {i + 1}
-                </span>
-                {TYPE_ICON[item.type]}
-                <span style={{ fontSize: 11, color: '#8F9885', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {item.label}
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* Live indicator */}
@@ -586,12 +627,25 @@ function OutputBox({
       >
         {content?.type === 'verse' ? (
           <>
-            <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: 9, color: '#fff', textAlign: 'center', lineHeight: 1.55 }}>
-              {content.text.length > 130 ? content.text.slice(0, 130) + '…' : content.text}
+            <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: content.secondaryText ? 7.5 : 9, color: '#fff', textAlign: 'center', lineHeight: 1.5 }}>
+              {content.text.length > 110 ? content.text.slice(0, 110) + '…' : content.text}
             </div>
             <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: 8, color: '#A8702E', textAlign: 'center' }}>
               {content.ref} ({content.translation})
             </div>
+            {/* ALT-fix: compare-translations bug -- the small preview mirror
+                never rendered the secondary translation even when set. */}
+            {content.secondaryText && (
+              <>
+                <div style={{ width: '60%', height: 1, background: 'rgba(255,255,255,0.15)', margin: '2px 0' }} />
+                <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: 7.5, color: '#fff', opacity: 0.85, textAlign: 'center', lineHeight: 1.5 }}>
+                  {content.secondaryText.length > 110 ? content.secondaryText.slice(0, 110) + '…' : content.secondaryText}
+                </div>
+                <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: 7, color: '#A8702E', opacity: 0.8, textAlign: 'center' }}>
+                  {content.ref} ({content.secondaryTranslation})
+                </div>
+              </>
+            )}
           </>
         ) : content?.type === 'timer' ? (
           <div style={{ textAlign: 'center' }}>

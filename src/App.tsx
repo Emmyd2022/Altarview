@@ -3,19 +3,15 @@ import { APP_INITIALS } from './config'
 import type { DisplayContent } from './screens/OutputStage'
 import { useStageTimer } from './hooks/useStageTimer'
 import { DEFAULT_SESSIONS, type ServiceSession } from './sessionModel'
-import OperatorScreen from './screens/OperatorScreen'
+import OperatorScreen, { type OperatorPage } from './screens/OperatorScreen'
 import PreviewScreen from './screens/PreviewScreen'
 import LiveScreen from './screens/LiveScreen'
 import StageScreen from './screens/StageScreen'
 import StageControlScreen from './screens/StageControlScreen'
-import SongLyricsScreen from './screens/SongLyricsScreen'
-import SermonSlidesScreen from './screens/SermonSlidesScreen'
 import PlaylistScreen from './screens/PlaylistScreen'
-import TimerScreen from './screens/TimerScreen'
 import ThemesScreen from './screens/ThemesScreen'
 import { DEFAULT_THEMES, type ThemeDef } from './themeModel'
 import { DEFAULT_SONGS, type Song } from './songModel'
-import UpNextScreen from './screens/UpNextScreen'
 import MediaScreen from './screens/MediaScreen'
 import PluginsScreen from './screens/PluginsScreen'
 import RecordingScreen from './screens/RecordingScreen'
@@ -257,6 +253,15 @@ function NavButton({
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('operator')
+  // ALT: unified Operator screen -- Scripture, Songs, Slides, Timer, and
+  // Up Next are now pages within Operator instead of separate top-level
+  // screens, so the Preview/Live/Pinned panel stays visible on all of them.
+  const [operatorPage, setOperatorPage] = useState<OperatorPage>('scripture')
+
+  function openOperatorPage(page: OperatorPage) {
+    setScreen('operator')
+    setOperatorPage(page)
+  }
   // ALT-003: lifted here so Operator and the two output screens share
   // one source of truth instead of each faking its own local state.
   const [previewContent, setPreviewContent] = useState<DisplayContent | null>(null)
@@ -308,9 +313,11 @@ export default function App() {
     )
   }
 
-  const screens: Record<Exclude<Screen, 'preview' | 'live' | 'stage'>, ReactNode> = {
+  const screens: Record<Exclude<Screen, 'preview' | 'live' | 'stage' | 'songs' | 'slides' | 'timer' | 'up-next'>, ReactNode> = {
     operator: (
       <OperatorScreen
+        page={operatorPage}
+        onChangePage={setOperatorPage}
         previewContent={previewContent}
         liveContent={liveContent}
         onSendPreview={(v) => setPreviewContent({ type: 'verse', ...v })}
@@ -330,23 +337,17 @@ export default function App() {
         }
         onOpenPreview={() => setScreen('preview')}
         onOpenLive={() => setScreen('live')}
-      />
-    ),
-    songs: (
-      <SongLyricsScreen
-        onSendPreview={(content) => setPreviewContent(content)}
-        onSendLive={(content) => setLiveContent(content)}
         songs={songs}
         onChangeSongs={setSongs}
+        onSendPreviewContent={(content) => setPreviewContent(content)}
+        onSendLiveContent={(content) => setLiveContent(content)}
+        sessions={sessions}
       />
     ),
-    slides: <SermonSlidesScreen onSendLive={(content) => setLiveContent(content)} />,
     playlist: (
       <PlaylistScreen
         sessions={sessions}
         onChangeSessions={setSessions}
-        onSendLive={(content) => setLiveContent(content)}
-        songs={songs}
         onStartService={() => {
           // Confirmed: Start Service only starts the countdown -- it does
           // NOT force-navigate. The operator manages/watches it from
@@ -355,7 +356,6 @@ export default function App() {
         }}
       />
     ),
-    timer: <TimerScreen />,
     themes: (
       <ThemesScreen
         themes={themes}
@@ -364,7 +364,6 @@ export default function App() {
         onSetActive={setActiveThemeId}
       />
     ),
-    'up-next': <UpNextScreen sessions={sessions} />,
     media: <MediaScreen onSendLive={(content) => setLiveContent(content)} />,
     plugins: <PluginsScreen />,
     recording: <RecordingScreen />,
@@ -447,14 +446,24 @@ export default function App() {
           >
             PRESENT
           </span>
-          {PRESENT_NAV.map((item) => (
-            <NavButton
-              key={item.id}
-              item={item}
-              active={screen === item.id}
-              onClick={() => setScreen(item.id)}
-            />
-          ))}
+          {PRESENT_NAV.map((item) => {
+            const mergedPages: Record<string, OperatorPage> = {
+              operator: 'scripture',
+              songs: 'songs',
+              slides: 'slides',
+              timer: 'timer',
+              'up-next': 'up-next',
+            }
+            const isMerged = item.id in mergedPages
+            return (
+              <NavButton
+                key={item.id}
+                item={item}
+                active={isMerged ? screen === 'operator' && operatorPage === mergedPages[item.id] : screen === item.id}
+                onClick={() => (isMerged ? openOperatorPage(mergedPages[item.id]) : setScreen(item.id))}
+              />
+            )
+          })}
         </div>
 
         {/* Divider */}
@@ -505,7 +514,7 @@ export default function App() {
 
       {/* Main content */}
       <div style={{ flex: 1, overflow: 'hidden' }}>
-        {screens[screen as Exclude<Screen, 'preview' | 'live' | 'stage'>]}
+        {screens[screen as Exclude<Screen, 'preview' | 'live' | 'stage' | 'songs' | 'slides' | 'timer' | 'up-next'>]}
       </div>
     </div>
   )
