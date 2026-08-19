@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ServiceSession } from '../sessionModel'
+import type { PinnedItem } from '../pinModel'
 
 interface UpNextStyle {
   id: string
@@ -17,7 +18,13 @@ const STYLES: UpNextStyle[] = [
 // ALT-034: "UP NEXT" -> reveals the next program name after a beat.
 // Built in-app (this screen), or an imported video file can replace the
 // in-app animation entirely (e.g. an After Effects export).
-export default function UpNextScreen({ sessions }: { sessions: ServiceSession[] }) {
+export default function UpNextScreen({
+  sessions,
+  onPin,
+}: {
+  sessions: ServiceSession[]
+  onPin?: (item: Omit<PinnedItem, 'id'>) => void
+}) {
   const [styleId, setStyleId] = useState(STYLES[0].id)
   const [durationSeconds, setDurationSeconds] = useState(4)
   const [previewSessionId, setPreviewSessionId] = useState(sessions[0]?.id ?? '')
@@ -230,23 +237,34 @@ export default function UpNextScreen({ sessions }: { sessions: ServiceSession[] 
               </div>
             )}
           </div>
-          <button
-            onClick={play}
-            disabled={playing}
-            style={{
-              background: playing ? '#1B2318' : '#A8702E',
-              border: 'none',
-              borderRadius: 7,
-              padding: '9px 20px',
-              fontSize: 12,
-              fontWeight: 600,
-              color: playing ? '#3A4430' : '#10160F',
-              cursor: playing ? 'not-allowed' : 'pointer',
-              fontFamily: 'inherit',
-            }}
-          >
-            {playing ? 'Playing…' : 'Play Preview'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={play}
+              disabled={playing}
+              style={{
+                background: playing ? '#1B2318' : '#A8702E',
+                border: 'none',
+                borderRadius: 7,
+                padding: '9px 20px',
+                fontSize: 12,
+                fontWeight: 600,
+                color: playing ? '#3A4430' : '#10160F',
+                cursor: playing ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              {playing ? 'Playing…' : 'Play Preview'}
+            </button>
+            {onPin && (
+              <button
+                onClick={() => onPin({ type: 'up-next', label: style.name, detail: `${durationSeconds}s`, upNextStyleId: style.id })}
+                title="Pin this style for quick access"
+                style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 7, padding: '9px 16px', fontSize: 12, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Pin
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

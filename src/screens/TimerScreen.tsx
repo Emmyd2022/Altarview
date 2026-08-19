@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import type { PinnedItem } from '../pinModel'
 
 const PRESETS = [
   { label: '2 min', seconds: 120 },
@@ -7,7 +8,11 @@ const PRESETS = [
   { label: '15 min', seconds: 900 },
 ]
 
-export default function TimerScreen() {
+export default function TimerScreen({
+  onPin,
+}: {
+  onPin?: (item: Omit<PinnedItem, 'id'>) => void
+} = {}) {
   const [totalSeconds, setTotalSeconds] = useState(300)
   const [remaining, setRemaining] = useState(300)
   const [running, setRunning] = useState(false)
@@ -168,6 +173,15 @@ export default function TimerScreen() {
             >
               Set
             </button>
+            {onPin && (
+              <button
+                onClick={() => onPin({ type: 'timer', label: `${Math.round(totalSeconds / 60)} min timer`, timerMinutes: Math.round(totalSeconds / 60) })}
+                title="Pin this duration for quick access"
+                style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Pin
+              </button>
+            )}
           </div>
         </div>
 

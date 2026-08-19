@@ -27,6 +27,10 @@ export interface SongDisplayContent {
   title: string
   artist: string
   lines: string[]
+  // ALT: lets Live navigate independently (jump to any verse/next verse)
+  // by knowing which song and which slide this is.
+  songId?: string
+  slideIndex?: number
 }
 
 // ALT-040: lets the operator push the Stage countdown onto the Live

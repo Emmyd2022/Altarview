@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song } from '../songModel'
 import type { DisplayContent } from './OutputStage'
+import type { PinnedItem } from '../pinModel'
 
 
 // ALT-011: sample duplicate-detection result -- in the real app this
@@ -166,15 +167,18 @@ export default function SongLyricsScreen({
   onSendLive,
   songs: songsProp,
   onChangeSongs,
+  onPin,
 }: {
   onSendPreview?: (content: DisplayContent) => void
   onSendLive?: (content: DisplayContent) => void
   songs?: Song[]
   onChangeSongs?: (songs: Song[]) => void
+  onPin?: (item: Omit<PinnedItem, 'id'>) => void
 } = {}) {
   // ALT: Now Playing state -- which song/slide is currently active for
   // navigation (Next/Previous/section-jump) and sending to Preview/Live.
   const [nowPlayingId, setNowPlayingId] = useState<string | null>(null)
+  const [showFullLyrics, setShowFullLyrics] = useState(false)
   const [slideIndex, setSlideIndex] = useState(0)
   const [query, setQuery] = useState('')
   const [bulkSelect, setBulkSelect] = useState(false)
@@ -256,8 +260,8 @@ export default function SongLyricsScreen({
     setSlideIndex(0)
   }
 
-  function slideToContent(song: Song, slideLines: string[]): DisplayContent {
-    return { type: 'song', title: song.title, artist: song.artist, lines: slideLines }
+  function slideToContent(song: Song, slideLines: string[], idx: number): DisplayContent {
+    return { type: 'song', title: song.title, artist: song.artist, lines: slideLines, songId: song.id, slideIndex: idx }
   }
 
   function goNextSlide() {
@@ -521,19 +525,60 @@ export default function SongLyricsScreen({
               <div style={{ fontSize: 12, fontWeight: 600, color: '#EDEAE0' }}>
                 Now Playing: {nowPlayingSong.title} <span style={{ color: '#8F9885', fontWeight: 400 }}>({currentSlide.sectionLabel})</span>
               </div>
-              <button
-                onClick={() => setNowPlayingId(null)}
-                style={{ background: 'transparent', border: 'none', color: '#8F9885', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}
-              >
-                Stop
-              </button>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => setShowFullLyrics((v) => !v)}
+                  style={{ background: 'transparent', border: 'none', color: showFullLyrics ? '#A8702E' : '#8F9885', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}
+                >
+                  {showFullLyrics ? 'Hide full lyrics' : 'Show full lyrics'}
+                </button>
+                <button
+                  onClick={() => setNowPlayingId(null)}
+                  style={{ background: 'transparent', border: 'none', color: '#8F9885', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}
+                >
+                  Stop
+                </button>
+              </div>
             </div>
 
-            <div style={{ background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: 12, marginBottom: 10 }}>
-              {currentSlide.lines.map((line, i) => (
-                <div key={i} style={{ fontSize: 13, color: '#EDEAE0', lineHeight: 1.7 }}>{line}</div>
-              ))}
-            </div>
+            {/* ALT: full song structure -- so the operator has context of
+                the whole song, not just the current 1-2 line slide. The
+                active section/lines are highlighted to match Live. */}
+            {showFullLyrics ? (
+              <div style={{ background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: 12, marginBottom: 10, maxHeight: 260, overflowY: 'auto' }}>
+                {nowPlayingSong.sections.map((sec, secIdx) => (
+                  <div key={secIdx} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: secIdx === currentSlide.sectionIndex ? '#A8702E' : '#8F9885', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+                      {sec.label}
+                    </div>
+                    {sec.lines.map((line, lineIdx) => {
+                      const isActiveLine = secIdx === currentSlide.sectionIndex && currentSlide.lines.includes(line)
+                      return (
+                        <div
+                          key={lineIdx}
+                          style={{
+                            fontSize: 13,
+                            color: isActiveLine ? '#EDEAE0' : '#8F9885',
+                            background: isActiveLine ? 'rgba(168,112,46,0.1)' : 'transparent',
+                            lineHeight: 1.7,
+                            padding: isActiveLine ? '0 4px' : 0,
+                            borderRadius: 3,
+                          }}
+                        >
+                          {line}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: 12, marginBottom: 10 }}>
+                {currentSlide.lines.map((line, i) => (
+                  <div key={i} style={{ fontSize: 13, color: '#EDEAE0', lineHeight: 1.7 }}>{line}</div>
+                ))}
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
               {nowPlayingSong.sections.map((sec, idx) => (
@@ -564,9 +609,27 @@ export default function SongLyricsScreen({
                 Next →
               </button>
               <div style={{ flex: 1 }} />
+              {onPin && (
+                <button
+                  onClick={() =>
+                    onPin({
+                      type: 'song',
+                      label: nowPlayingSong.title,
+                      detail: currentSlide.sectionLabel,
+                      songTitle: nowPlayingSong.title,
+                      songArtist: nowPlayingSong.artist,
+                      songLines: currentSlide.lines,
+                    })
+                  }
+                  title="Pin this slide"
+                  style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '6px 10px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  Pin
+                </button>
+              )}
               {onSendPreview && (
                 <button
-                  onClick={() => onSendPreview(slideToContent(nowPlayingSong, currentSlide.lines))}
+                  onClick={() => onSendPreview(slideToContent(nowPlayingSong, currentSlide.lines, slideIndex))}
                   style={{ background: 'transparent', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#A8702E', cursor: 'pointer', fontFamily: 'inherit' }}
                 >
                   Send to Preview
@@ -574,7 +637,7 @@ export default function SongLyricsScreen({
               )}
               {onSendLive && (
                 <button
-                  onClick={() => onSendLive(slideToContent(nowPlayingSong, currentSlide.lines))}
+                  onClick={() => onSendLive(slideToContent(nowPlayingSong, currentSlide.lines, slideIndex))}
                   style={{ background: '#A8702E', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
                 >
                   Send to Live

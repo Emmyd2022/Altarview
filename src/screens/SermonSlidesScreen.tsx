@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { DisplayContent } from './OutputStage'
+import type { PinnedItem } from '../pinModel'
 
 interface Slide {
   id: number
@@ -37,8 +38,10 @@ const INITIAL_SAVED_DECKS: SavedDeck[] = [
 
 export default function SermonSlidesScreen({
   onSendLive,
+  onPin,
 }: {
   onSendLive?: (content: DisplayContent) => void
+  onPin?: (item: Omit<PinnedItem, 'id'>) => void
 } = {}) {
   const [slides, setSlides] = useState(INITIAL_SLIDES)
   const [activeId, setActiveId] = useState(1)
@@ -163,6 +166,24 @@ export default function SermonSlidesScreen({
                 }}
               >
                 Send to Live
+              </button>
+            )}
+            {onPin && (
+              <button
+                onClick={() => onPin({ type: 'slide', label: `Slide ${slides.findIndex((s) => s.id === activeId) + 1}`, detail: activeSlide.text.split('\n')[0].slice(0, 30), slideText: activeSlide.text })}
+                title="Pin this slide"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #2A331F',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  color: '#8F9885',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Pin
               </button>
             )}
           </>

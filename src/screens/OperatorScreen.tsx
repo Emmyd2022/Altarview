@@ -8,6 +8,7 @@ import TimerScreen from './TimerScreen'
 import UpNextScreen from './UpNextScreen'
 import type { Song } from '../songModel'
 import type { ServiceSession } from '../sessionModel'
+import { newPinId, type PinnedItem } from '../pinModel'
 
 // ALT: unified Operator screen -- Scripture, Songs, Slides, Timer, and Up
 // Next are pages within this one screen instead of separate top-level
@@ -137,20 +138,58 @@ export default function OperatorScreen({
   // confirmed match push straight to Live) are independent toggles.
   const [aiDetect, setAiDetect] = useState(false)
   const [autoSend, setAutoSend] = useState(false)
-  // ALT-024: pinned/anchored scriptures for fast recall mid-service, when
-  // a preacher asks for something out of the planned order.
-  const [pinned, setPinned] = useState<Verse[]>([])
+  // ALT-024/expanded: pinned/anchored items for fast recall mid-service --
+  // now supports any resource type (verse, song slide, sermon slide,
+  // timer preset, Up Next transition), not just scriptures.
+  const [pinned, setPinned] = useState<PinnedItem[]>([])
   const [dragPinIdx, setDragPinIdx] = useState<number | null>(null)
   const [dragOverPinIdx, setDragOverPinIdx] = useState<number | null>(null)
 
   function isPinned(v: Verse) {
-    return pinned.some((p) => p.ref === v.ref && p.translation === v.translation)
+    return pinned.some((p) => p.type === 'verse' && p.verseRef === v.ref && p.verseTranslation === v.translation)
   }
 
   function togglePin(v: Verse) {
     setPinned((prev) =>
-      isPinned(v) ? prev.filter((p) => !(p.ref === v.ref && p.translation === v.translation)) : [...prev, v],
+      isPinned(v)
+        ? prev.filter((p) => !(p.type === 'verse' && p.verseRef === v.ref && p.verseTranslation === v.translation))
+        : [
+            ...prev,
+            {
+              id: newPinId(),
+              type: 'verse',
+              label: v.ref,
+              detail: v.translation,
+              verseRef: v.ref,
+              verseTranslation: v.translation,
+              verseText: v.text,
+            },
+          ],
     )
+  }
+
+  function pinItem(item: Omit<PinnedItem, 'id'>) {
+    setPinned((prev) => [...prev, { ...item, id: newPinId() }])
+  }
+
+  function unpinById(id: string) {
+    setPinned((prev) => prev.filter((p) => p.id !== id))
+  }
+
+  function sendPinnedItem(p: PinnedItem, destination: 'preview' | 'live') {
+    const send = destination === 'preview' ? onSendPreviewContent : onSendLiveContent
+    if (!send) return
+    if (p.type === 'verse' && p.verseRef && p.verseTranslation && p.verseText) {
+      send({ type: 'verse', ref: p.verseRef, translation: p.verseTranslation, text: p.verseText })
+    } else if (p.type === 'song' && p.songTitle && p.songLines) {
+      send({ type: 'song', title: p.songTitle, artist: p.songArtist ?? '', lines: p.songLines })
+    } else if (p.type === 'slide' && p.slideText) {
+      send({ type: 'slide', text: p.slideText })
+    } else if (p.type === 'timer') {
+      onChangePage('timer')
+    } else if (p.type === 'up-next') {
+      onChangePage('up-next')
+    }
   }
 
   function reorderPinned(targetIdx: number) {
@@ -367,22 +406,23 @@ export default function OperatorScreen({
               onSendLive={onSendLiveContent}
               songs={songs}
               onChangeSongs={onChangeSongs}
+              onPin={(item) => pinItem(item)}
             />
           </div>
         )}
         {page === 'slides' && (
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <SermonSlidesScreen onSendLive={onSendLiveContent} />
+            <SermonSlidesScreen onSendLive={onSendLiveContent} onPin={(item) => pinItem(item)} />
           </div>
         )}
         {page === 'timer' && (
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <TimerScreen />
+            <TimerScreen onPin={(item) => pinItem(item)} />
           </div>
         )}
         {page === 'up-next' && (
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <UpNextScreen sessions={sessions ?? []} />
+            <UpNextScreen sessions={sessions ?? []} onPin={(item) => pinItem(item)} />
           </div>
         )}
       </div>
@@ -451,13 +491,13 @@ export default function OperatorScreen({
           </div>
           {pinned.length === 0 ? (
             <div style={{ fontSize: 11, color: '#3A4430' }}>
-              {t.pinHint}
+              Pin a verse, song slide, sermon slide, timer preset, or Up Next style for fast recall mid-service.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {pinned.map((v, i) => (
+              {pinned.map((p, i) => (
                 <div
-                  key={`${v.ref}-${v.translation}`}
+                  key={p.id}
                   draggable
                   onDragStart={() => setDragPinIdx(i)}
                   onDragOver={(e) => {
@@ -477,18 +517,30 @@ export default function OperatorScreen({
                     cursor: 'grab',
                   }}
                 >
+                  <PinTypeIcon type={p.type} />
                   <span style={{ fontSize: 11, color: '#EDEAE0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {v.ref} <span style={{ color: '#3A4430' }}>({v.translation})</span>
+                    {p.label} {p.detail && <span style={{ color: '#3A4430' }}>({p.detail})</span>}
                   </span>
+                  {(p.type === 'verse' || p.type === 'song' || p.type === 'slide') && (
+                    <button
+                      onClick={() => sendPinnedItem(p, 'live')}
+                      title="Send to Live"
+                      style={{ background: 'none', border: 'none', color: '#A8702E', cursor: 'pointer', fontSize: 10, padding: '0 3px', fontFamily: 'inherit' }}
+                    >
+                      Send
+                    </button>
+                  )}
+                  {(p.type === 'timer' || p.type === 'up-next') && (
+                    <button
+                      onClick={() => sendPinnedItem(p, 'live')}
+                      title="Go to this page"
+                      style={{ background: 'none', border: 'none', color: '#A8702E', cursor: 'pointer', fontSize: 10, padding: '0 3px', fontFamily: 'inherit' }}
+                    >
+                      Go
+                    </button>
+                  )}
                   <button
-                    onClick={() => onSendLive(v)}
-                    title="Send to Live"
-                    style={{ background: 'none', border: 'none', color: '#A8702E', cursor: 'pointer', fontSize: 10, padding: '0 3px', fontFamily: 'inherit' }}
-                  >
-                    Send
-                  </button>
-                  <button
-                    onClick={() => togglePin(v)}
+                    onClick={() => unpinById(p.id)}
                     title="Unpin"
                     style={{ background: 'none', border: 'none', color: '#8F9885', cursor: 'pointer', fontSize: 13, padding: '0 2px' }}
                   >
@@ -868,6 +920,18 @@ function TopBarLinkBtn({ onClick, label }: { onClick: () => void; label: string 
       {label}
     </button>
   )
+}
+
+function PinTypeIcon({ type }: { type: PinnedItem['type'] }) {
+  const icons: Record<PinnedItem['type'], { glyph: string; color: string }> = {
+    verse: { glyph: '✦', color: '#A8702E' },
+    song: { glyph: '♪', color: '#7BAFD4' },
+    slide: { glyph: '▤', color: '#8F9885' },
+    timer: { glyph: '⏱', color: '#C97A4A' },
+    'up-next': { glyph: '▶', color: '#6FC98A' },
+  }
+  const { glyph, color } = icons[type]
+  return <span style={{ fontSize: 11, color, flexShrink: 0, width: 12, textAlign: 'center' }}>{glyph}</span>
 }
 
 function StatusPill() {

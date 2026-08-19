@@ -54,44 +54,12 @@ const PRESENT_NAV: NavItem[] = [
     ),
   },
   {
-    id: 'songs',
-    label: 'Song Lyrics',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <path d="M7 14V5l8-2v9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx="5" cy="14" r="2" stroke="currentColor" strokeWidth="1.4" />
-        <circle cx="13" cy="12" r="2" stroke="currentColor" strokeWidth="1.4" />
-      </svg>
-    ),
-  },
-  {
-    id: 'slides',
-    label: 'Sermon Notes & Slides',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <rect x="3" y="2" width="12" height="14" rx="2" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M6 6h6M6 9h6M6 12h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
     id: 'playlist',
     label: 'Service Playlist',
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <path d="M3 5h12M3 9h12M3 13h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
         <path d="M13 11l3 2-3 2v-4z" fill="currentColor" />
-      </svg>
-    ),
-  },
-  {
-    id: 'timer',
-    label: 'Timer / Countdown',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <circle cx="9" cy="10" r="6" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M9 7v3l2 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M7 2h4M9 2v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       </svg>
     ),
   },
@@ -128,16 +96,6 @@ const MANAGE_NAV: NavItem[] = [
         <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.4" />
         <circle cx="9" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.4" />
         <path d="M9 3v2M9 13v2M3 9h2M13 9h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    id: 'up-next',
-    label: 'Up Next',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <path d="M4 4l6 5-6 5V4z" fill="currentColor" />
-        <path d="M12 4v10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       </svg>
     ),
   },
@@ -298,9 +256,11 @@ export default function App() {
           content={liveContent}
           onExit={() => setScreen('operator')}
           onChangeTranslation={(translation, text) =>
-            setLiveContent((prev) => (prev ? { ...prev, translation, text } : prev))
+            setLiveContent((prev) => (prev && prev.type === 'verse' ? { ...prev, translation, text } : prev))
           }
           theme={activeTheme}
+          songs={songs}
+          onNavigateSong={(content) => setLiveContent(content)}
         />
       </div>
     )
