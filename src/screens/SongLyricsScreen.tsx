@@ -256,7 +256,14 @@ export default function SongLyricsScreen({
   const [autoDetectOn, setAutoDetectOn] = useState(false)
   const [simulatedInput, setSimulatedInput] = useState('')
   const [detectStatus, setDetectStatus] = useState<'idle' | 'checking' | 'matched' | 'no-match'>('idle')
+  const [detectConfidence, setDetectConfidence] = useState(0)
 
+  // ALT-item-8: mirrors EasyVerse's real behavior -- detection runs off the
+  // same continuous transcript stream as scripture, and keeps tracking +
+  // auto-advancing within the song already being followed as more lyrics
+  // come in, rather than re-searching the whole database from scratch on
+  // every update. Falls back to a fresh database search only when nothing
+  // matches in the currently-followed song (i.e. the song likely changed).
   function runDetection(text: string) {
     setSimulatedInput(text)
     if (!text.trim()) {
@@ -265,23 +272,43 @@ export default function SongLyricsScreen({
     }
     setDetectStatus('checking')
     const needle = text.trim().toLowerCase()
+
+    // Continuous tracking: check the song already being followed first.
+    if (openedSong) {
+      const currentSlides = buildSlides(openedSong)
+      const matchIdx = currentSlides.findIndex((sl) => sl.lines.some((l) => l.toLowerCase().includes(needle)))
+      if (matchIdx !== -1) {
+        setActiveSlideKey({ songId: openedSong.id, slideIndex: matchIdx })
+        setDetectConfidence(matchConfidence(needle, currentSlides[matchIdx].lines))
+        setDetectStatus('matched')
+        return
+      }
+    }
+
+    // Fresh database search -- either nothing was being followed yet, or
+    // the lyrics moved to a different song entirely.
     for (const song of songs) {
-      for (const section of song.sections) {
-        const lineIdx = section.lines.findIndex((l) => l.toLowerCase().includes(needle))
-        if (lineIdx !== -1) {
-          const songSlides = buildSlides(song)
-          const matchIdx = songSlides.findIndex(
-            (sl) => sl.sectionIndex === song.sections.indexOf(section) && sl.lines.some((l) => l.toLowerCase().includes(needle)),
-          )
-          setOpenedSongId(song.id)
-          setActiveSlideKey({ songId: song.id, slideIndex: matchIdx === -1 ? 0 : matchIdx })
-          setDetectStatus('matched')
-          return
-        }
+      const songSlides = buildSlides(song)
+      const matchIdx = songSlides.findIndex((sl) => sl.lines.some((l) => l.toLowerCase().includes(needle)))
+      if (matchIdx !== -1) {
+        setOpenedSongId(song.id)
+        setActiveSlideKey({ songId: song.id, slideIndex: matchIdx })
+        setDetectConfidence(matchConfidence(needle, songSlides[matchIdx].lines))
+        setDetectStatus('matched')
+        return
       }
     }
     // Not found locally -- this is where a real online lookup would run.
     setDetectStatus('no-match')
+  }
+
+  // Lightweight confidence estimate: how much of the matched line the
+  // heard text actually covers -- EasyVerse shows a similar confidence
+  // score alongside its sub-300ms scripture matches.
+  function matchConfidence(needle: string, lines: string[]): number {
+    const line = lines.find((l) => l.toLowerCase().includes(needle))
+    if (!line) return 0
+    return Math.min(100, Math.round((needle.length / line.length) * 100))
   }
 
   function openSong(song: Song) {
@@ -566,9 +593,25 @@ export default function SongLyricsScreen({
                 <span style={{ color: '#8F9885' }}>
                   {detectStatus === 'idle' && 'Waiting for input...'}
                   {detectStatus === 'checking' && 'Checking local database...'}
-                  {detectStatus === 'matched' && `Matched locally -- opened "${openedSong?.title}"`}
+                  {detectStatus === 'matched' && `Matched locally (${detectConfidence}% confidence) -- tracking "${openedSong?.title}"`}
                   {detectStatus === 'no-match' && 'Not found locally -- would check online next (no online lookup in this prototype)'}
                 </span>
+                {/* ALT-item-9: unrecognized lyrics can be saved straight to
+                    the local library, so the same phrase is found locally
+                    (fast) instead of falling through to no-match next time. */}
+                {detectStatus === 'no-match' && (
+                  <button
+                    onClick={() => {
+                      setQuickEntryTitle('')
+                      setQuickEntryText(`[Verse 1]
+${simulatedInput}`)
+                      setShowQuickEntry(true)
+                    }}
+                    style={{ background: 'transparent', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 5, padding: '2px 9px', fontSize: 10, color: '#A8702E', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    Save as New Song
+                  </button>
+                )}
               </div>
             </>
           )}
