@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song, type SongSlide } from '../songModel'
 import type { DisplayContent } from './OutputStage'
 import type { PinnedItem } from '../pinModel'
@@ -47,16 +47,28 @@ const MERGE_CANDIDATES: MergeCandidate[] = [
 
 // ALT-009: quick text entry parsing -- splits on [Section] markers.
 function parseQuickEntry(text: string): { section: string; lines: string[] }[] {
-  const parts = text.split(/\[([^\]]+)\]/).filter((s) => s.trim() !== '')
-  const result: { section: string; lines: string[] }[] = []
-  for (let i = 0; i < parts.length; i += 2) {
-    const section = parts[i]?.trim()
-    const body = parts[i + 1]?.trim()
-    if (section && body) {
-      result.push({ section, lines: body.split('\n').map((l) => l.trim()).filter(Boolean) })
+  if (!text.trim()) return []
+  const hasBracketMarkers = /\[[^\]]+\]/.test(text)
+  if (hasBracketMarkers) {
+    const parts = text.split(/\[([^\]]+)\]/).filter((s) => s.trim() !== '')
+    const result: { section: string; lines: string[] }[] = []
+    for (let i = 0; i < parts.length; i += 2) {
+      const section = parts[i]?.trim()
+      const body = parts[i + 1]?.trim()
+      if (section && body) {
+        result.push({ section, lines: body.split('\n').map((l) => l.trim()).filter(Boolean) })
+      }
     }
+    return result
   }
-  return result
+  // ALT-fix: most pasted lyrics have no [Section] markers at all -- fall
+  // back to treating blank-line-separated paragraphs as sections, rather
+  // than silently producing zero lyrics.
+  const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+  return paragraphs.map((p, i) => ({
+    section: paragraphs.length > 1 ? `Verse ${i + 1}` : 'Verse 1',
+    lines: p.split('\n').map((l) => l.trim()).filter(Boolean),
+  }))
 }
 
 type LibraryTab = 'All Songs' | 'Hymns'
@@ -208,7 +220,9 @@ export default function SongLyricsScreen({
   const [showMerge, setShowMerge] = useState(false)
   const [showOnlineSearch, setShowOnlineSearch] = useState(false)
   const [onlineQuery, setOnlineQuery] = useState('')
-  const [showImportPicker, setShowImportPicker] = useState(false)
+  // ALT-fix: the "···" more-options button had no onClick at all.
+  const [moreOptionsForId, setMoreOptionsForId] = useState<string | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const [mergeCandidates, setMergeCandidates] = useState(MERGE_CANDIDATES)
 
   const byTab = tab === 'Hymns' ? songs.filter((s) => s.isHymn) : songs
@@ -513,7 +527,7 @@ export default function SongLyricsScreen({
           Search online lyrics
         </button>
         <button
-          onClick={() => setShowImportPicker((v) => !v)}
+          onClick={() => importInputRef.current?.click()}
           style={{
             background: '#A8702E',
             border: 'none',
@@ -629,29 +643,24 @@ ${simulatedInput}`)
             />
             {onlineQuery.trim() ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <p style={{ fontSize: 10, color: '#3A4430', margin: '0 0 4px' }}>
+                  No live lyrics API is connected in this prototype -- picking a result opens Quick Text Entry
+                  pre-filled with the title, so you can paste and preview the real lyrics before saving anything.
+                </p>
                 {[`${onlineQuery} (Live)`, `${onlineQuery} (Studio Version)`].map((title, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '8px 10px' }}>
                     <span style={{ flex: 1, fontSize: 12, color: '#EDEAE0' }}>{title}</span>
                     <button
                       onClick={() => {
-                        setSongs((prev) => [
-                          ...prev,
-                          {
-                            id: `online-${Date.now()}-${i}`,
-                            title,
-                            artist: 'Unknown',
-                            source: 'Online',
-                            isHymn: false,
-                            linesPerSlide: 2,
-                            sections: [{ label: 'Verse 1', lines: ['Lyrics not yet fetched -- edit via Quick Text Entry'] }],
-                          },
-                        ])
+                        setQuickEntryTitle(title)
+                        setQuickEntryText('')
                         setShowOnlineSearch(false)
                         setOnlineQuery('')
+                        setShowQuickEntry(true)
                       }}
                       style={{ background: '#A8702E', border: 'none', borderRadius: 5, padding: '4px 10px', fontSize: 10, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
                     >
-                      Add to Library
+                      Use This Title
                     </button>
                   </div>
                 ))}
@@ -664,40 +673,34 @@ ${simulatedInput}`)
           </div>
         )}
 
-        {/* ALT: Import Song -- file picker for lyric files (txt/pdf/docx in
-            the real app); adds a placeholder entry here since there is no
-            real file-parsing pipeline in this prototype. */}
-        {showImportPicker && (
-          <div style={{ background: '#1B2318', border: '1px solid rgba(168,112,46,0.3)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-            <input
-              type="file"
-              accept=".txt,.pdf,.docx"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (!file) return
-                const dotIndex = file.name.lastIndexOf('.')
-                const baseName = dotIndex > 0 ? file.name.slice(0, dotIndex) : file.name
-                setSongs((prev) => [
-                  ...prev,
-                  {
-                    id: `import-${Date.now()}`,
-                    title: baseName,
-                    artist: 'Imported file',
-                    source: 'Imported',
-                    isHymn: false,
-                    linesPerSlide: 2,
-                    sections: [{ label: 'Verse 1', lines: ['Lyrics not yet parsed -- edit via Quick Text Entry'] }],
-                  },
-                ])
-                setShowImportPicker(false)
-              }}
-              style={{ fontSize: 12, color: '#8F9885' }}
-            />
-            <p style={{ fontSize: 10, color: '#3A4430', margin: '8px 0 0' }}>
-              Supports .txt, .pdf, .docx. Adds the song as a placeholder you can fill in with Quick Text Entry.
-            </p>
-          </div>
-        )}
+        {/* ALT-fix: Import Song now opens the OS file dialog directly on
+            one click (via a hidden input + ref), instead of showing a
+            visible intermediate panel the user had to click again. */}
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".txt,.pdf,.docx"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (!file) return
+            const dotIndex = file.name.lastIndexOf('.')
+            const baseName = dotIndex > 0 ? file.name.slice(0, dotIndex) : file.name
+            setSongs((prev) => [
+              ...prev,
+              {
+                id: `import-${Date.now()}`,
+                title: baseName,
+                artist: 'Imported file',
+                source: 'Imported',
+                isHymn: false,
+                linesPerSlide: 2,
+                sections: [{ label: 'Verse 1', lines: ['Lyrics not yet parsed -- edit via Quick Text Entry'] }],
+              },
+            ])
+            e.target.value = ''
+          }}
+          style={{ display: 'none' }}
+        />
 
         {/* ALT-009: Quick text entry */}
         {showQuickEntry && (
@@ -1102,7 +1105,9 @@ ${simulatedInput}`)
                     </button>
                   )}
                   {!bulkSelect && (
+                    <div style={{ position: 'relative' }}>
                     <button
+                      onClick={() => setMoreOptionsForId(moreOptionsForId === song.id ? null : song.id)}
                       style={{
                         background: 'transparent',
                         border: 'none',
@@ -1120,6 +1125,53 @@ ${simulatedInput}`)
                     >
                       ···
                     </button>
+                    {moreOptionsForId === song.id && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '110%',
+                          right: 0,
+                          background: '#1B2318',
+                          border: '1px solid #2A331F',
+                          borderRadius: 6,
+                          overflow: 'hidden',
+                          minWidth: 120,
+                          zIndex: 20,
+                        }}
+                      >
+                        <button
+                          onClick={() => {
+                            const newTitle = window.prompt('Rename song', song.title)
+                            if (newTitle && newTitle.trim()) {
+                              setSongs((prev) => prev.map((s) => (s.id === song.id ? { ...s, title: newTitle.trim() } : s)))
+                            }
+                            setMoreOptionsForId(null)
+                          }}
+                          style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '7px 12px', fontSize: 11, color: '#EDEAE0', cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSongs((prev) => [...prev, { ...song, id: `dup-${Date.now()}`, title: `${song.title} (Copy)` }])
+                            setMoreOptionsForId(null)
+                          }}
+                          style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '7px 12px', fontSize: 11, color: '#EDEAE0', cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSongs((prev) => prev.filter((s) => s.id !== song.id))
+                            setMoreOptionsForId(null)
+                          }}
+                          style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '7px 12px', fontSize: 11, color: '#ff6060', cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                    </div>
                   )}
                 </div>
               ))}

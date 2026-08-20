@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import type { DisplayContent } from './OutputStage'
 import { useT } from '../i18n'
 import { availableTranslationsFor } from '../verseData'
@@ -144,6 +144,28 @@ export default function OperatorScreen({
   // now supports any resource type (verse, song slide, sermon slide,
   // timer preset, Up Next transition), not just scriptures.
   const [pinned, setPinned] = useState<PinnedItem[]>([])
+  // ALT-fix: "Now on Screen" panel widened (260 -> 320 default) and made
+  // drag-resizable, since translation compare / longer song lines were
+  // cramped at the old fixed width.
+  const [sidebarWidth, setSidebarWidth] = useState(320)
+  const [resizingSidebar, setResizingSidebar] = useState(false)
+
+  useEffect(() => {
+    if (!resizingSidebar) return
+    function onMove(e: MouseEvent) {
+      const next = window.innerWidth - e.clientX
+      setSidebarWidth(Math.min(520, Math.max(240, next)))
+    }
+    function onUp() {
+      setResizingSidebar(false)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [resizingSidebar])
   // ALT: controlled "open this specific item" requests, so a pinned item's
   // Open/Send buttons can command Songs/Slides to open the right thing
   // after switching pages.
@@ -469,10 +491,27 @@ export default function OperatorScreen({
         )}
       </div>
 
+      {/* Drag handle -- resizes the right sidebar */}
+      <div
+        onMouseDown={() => setResizingSidebar(true)}
+        style={{
+          width: 5,
+          flexShrink: 0,
+          cursor: 'col-resize',
+          background: resizingSidebar ? 'rgba(168,112,46,0.4)' : 'transparent',
+        }}
+        onMouseEnter={(e) => {
+          if (!resizingSidebar) e.currentTarget.style.background = 'rgba(168,112,46,0.2)'
+        }}
+        onMouseLeave={(e) => {
+          if (!resizingSidebar) e.currentTarget.style.background = 'transparent'
+        }}
+      />
+
       {/* Right sidebar */}
       <div
         style={{
-          width: 260,
+          width: sidebarWidth,
           flexShrink: 0,
           borderLeft: '1px solid #2A331F',
           background: '#1B2318',
