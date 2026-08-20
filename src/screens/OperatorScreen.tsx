@@ -9,6 +9,7 @@ import UpNextScreen from './UpNextScreen'
 import type { Song } from '../songModel'
 import type { ServiceSession } from '../sessionModel'
 import { newPinId, type PinnedItem } from '../pinModel'
+import { parseReference, getVerseRange, chapterVerseCount, nextVerseRef, previousVerseRef, rangeLabel, type VerseRef } from '../bibleModel'
 
 // ALT: unified Operator screen -- Scripture, Songs, Slides, Timer, and Up
 // Next are pages within this one screen instead of separate top-level
@@ -55,6 +56,16 @@ const SAMPLE_VERSES: Verse[] = [
     translation: 'NIV',
     text: 'Trust in the LORD with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.',
   },
+  // ALT: expanded with the fully-loaded John chapters (item 3 -- "enough
+  // scriptures for proper testing"), generated from bibleModel.ts so the
+  // browsable list isn't limited to 6 hand-picked highlights.
+  ...([1, 3, 4] as const).flatMap((chapter) =>
+    getVerseRange('John', chapter, 1, chapterVerseCount('John', chapter), 'KJV').map((v) => ({
+      ref: `John ${v.chapter}:${v.verse}`,
+      translation: v.translation,
+      text: v.text,
+    })),
+  ),
 ]
 
 const UP_NEXT = [
@@ -149,6 +160,42 @@ export default function OperatorScreen({
   // cramped at the old fixed width.
   const [sidebarWidth, setSidebarWidth] = useState(320)
   const [resizingSidebar, setResizingSidebar] = useState(false)
+  // ALT: Scripture page rebuild -- opened verse range (from a reference
+  // search like "John 3:16-20" or clicking a result), and multi-select
+  // for pinning several verses as one item (FreeShow/ProPresenter-style).
+  const [openedRange, setOpenedRange] = useState<{ book: string; chapter: number; start: number; end: number } | null>(null)
+  const [selectedVerseKeys, setSelectedVerseKeys] = useState<Set<string>>(new Set())
+
+  function verseKey(book: string, chapter: number, verse: number) {
+    return `${book}|${chapter}|${verse}`
+  }
+
+  function openReference(ref: { book: string; chapter: number; startVerse: number; endVerse: number }) {
+    setOpenedRange({ book: ref.book, chapter: ref.chapter, start: ref.startVerse, end: ref.endVerse })
+  }
+
+  const openedVerses = openedRange
+    ? getVerseRange(openedRange.book, openedRange.chapter, openedRange.start, openedRange.end, translation)
+    : []
+  const openedCombinedText = openedVerses.map((v) => v.text).join(' ')
+  const openedLabel = openedRange ? rangeLabel(openedRange.book, openedRange.chapter, openedRange.start, openedRange.end) : ''
+
+  function openedRangeToContent(): DisplayContent | null {
+    if (!openedRange || openedVerses.length === 0) return null
+    return { type: 'verse', ref: openedLabel, translation, text: openedCombinedText }
+  }
+
+  function goToNextVerse() {
+    if (!openedRange) return
+    const next = nextVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: openedRange.end })
+    if (next) setOpenedRange({ book: next.book, chapter: next.chapter, start: next.verse, end: next.verse })
+  }
+
+  function goToPreviousVerse() {
+    if (!openedRange) return
+    const prev = previousVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: openedRange.start })
+    if (prev) setOpenedRange({ book: prev.book, chapter: prev.chapter, start: prev.verse, end: prev.verse })
+  }
 
   useEffect(() => {
     if (!resizingSidebar) return
@@ -347,6 +394,12 @@ export default function OperatorScreen({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const parsed = parseReference(query)
+                    if (parsed) openReference(parsed)
+                  }
+                }}
                 placeholder={t.searchPlaceholder}
                 style={{
                   width: '100%',
@@ -425,30 +478,163 @@ export default function OperatorScreen({
           </div>
         </div>
 
-        {/* Verse list */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '10px 20px 20px 20px' }}>
-          {filtered.length === 0 ? (
-            <div style={{ padding: 32, textAlign: 'center', color: '#8F9885', fontSize: 13 }}>
-              No verses found for "{query}"
+        {/* Multi-select bar (FreeShow-style: Ctrl/Cmd+click to select several, pin as one) */}
+        {!openedRange && selectedVerseKeys.size >= 2 && (
+          <div style={{ padding: '0 20px 10px 20px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1B2318', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 8, padding: '8px 12px' }}>
+              <span style={{ fontSize: 12, color: '#A8702E' }}>{selectedVerseKeys.size} verses selected</span>
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={() => {
+                  const picked = filtered.filter((v) => selectedVerseKeys.has(v.ref))
+                  if (picked.length === 0) return
+                  const combinedRef = picked.map((v) => v.ref).join('; ')
+                  const combinedText = picked.map((v) => v.text).join(' ')
+                  pinItem({ type: 'verse', label: combinedRef, detail: picked[0].translation, verseRef: combinedRef, verseTranslation: picked[0].translation, verseText: combinedText })
+                  setSelectedVerseKeys(new Set())
+                }}
+                style={{ background: '#A8702E', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Pin Selected as One
+              </button>
+              <button
+                onClick={() => setSelectedVerseKeys(new Set())}
+                style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Clear
+              </button>
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {filtered.map((verse, i) => (
-                <VerseCard
-                  key={i}
-                  verse={verse}
-                  isPreview={previewContent?.type === 'verse' && previewContent.ref === verse.ref && previewContent.translation === verse.translation}
-                  isLive={liveContent?.type === 'verse' && liveContent.ref === verse.ref && liveContent.translation === verse.translation}
-                  isPinned={isPinned(verse)}
-                  onSendPreview={() => onSendPreview(verse)}
-                  onSendLive={() => onSendLive(verse)}
-                  onSendStage={onSendStageContent ? () => onSendStageContent({ type: 'verse', ref: verse.ref, translation: verse.translation, text: verse.text }) : undefined}
-                  onTogglePin={() => togglePin(verse)}
-                />
-              ))}
+          </div>
+        )}
+
+        {/* ALT: opened reading view (from a reference search or clicking a
+            result) -- FreeShow/ProPresenter-style Next/Previous Verse
+            navigation that crosses chapter boundaries automatically. */}
+        {openedRange ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 20px 20px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <button
+                onClick={() => setOpenedRange(null)}
+                style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '5px 12px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                ← Back to Search
+              </button>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#EDEAE0' }}>{openedLabel}</div>
+              <div style={{ fontSize: 12, color: '#8F9885' }}>({translation})</div>
+              <button
+                onClick={() => {
+                  if (openedVerses.length === 0) return
+                  pinItem({ type: 'verse', label: openedLabel, detail: translation, verseRef: openedLabel, verseTranslation: translation, verseText: openedCombinedText })
+                }}
+                title="Pin this passage"
+                style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Pin
+              </button>
             </div>
-          )}
-        </div>
+
+            {openedVerses.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#8F9885' }}>
+                Not available in {translation} in this prototype's loaded Bible data.
+              </div>
+            ) : (
+              <div style={{ background: '#1B2318', border: '1px solid #2A331F', borderRadius: 8, padding: 14, marginBottom: 14 }}>
+                {openedVerses.map((v) => (
+                  <div key={v.verse} style={{ fontSize: 13, color: '#EDEAE0', lineHeight: 1.8, marginBottom: 4 }}>
+                    <span style={{ color: '#A8702E', fontSize: 10, fontWeight: 600, marginRight: 6 }}>{v.verse}</span>
+                    {v.text}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+              <button onClick={goToPreviousVerse} style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '6px 14px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}>
+                ← Previous Verse
+              </button>
+              <button onClick={goToNextVerse} style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '6px 14px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}>
+                Next Verse →
+              </button>
+            </div>
+
+            <p style={{ fontSize: 10, color: '#3A4430', marginBottom: 14 }}>
+              Click to stage (Preview). Double-click anywhere in the passage above to send everywhere (Preview + Live + Stage).
+            </p>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => {
+                  const content = openedRangeToContent()
+                  if (content) onSendPreviewContent?.(content)
+                }}
+                style={{ background: 'transparent', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#A8702E', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Send to Preview
+              </button>
+              <button
+                onClick={() => {
+                  const content = openedRangeToContent()
+                  if (content) onSendLiveContent?.(content)
+                }}
+                style={{ background: '#A8702E', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Send to Live
+              </button>
+              <button
+                onClick={() => {
+                  const content = openedRangeToContent()
+                  if (content) onSendStageContent?.(content)
+                }}
+                style={{ background: 'transparent', border: '1px solid #C97A4A', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#C97A4A', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Send to Stage
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 20px 20px 20px' }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: 32, textAlign: 'center', color: '#8F9885', fontSize: 13 }}>
+                No verses found for "{query}"
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {filtered.map((verse, i) => (
+                  <VerseCard
+                    key={i}
+                    verse={verse}
+                    isPreview={previewContent?.type === 'verse' && previewContent.ref === verse.ref && previewContent.translation === verse.translation}
+                    isLive={liveContent?.type === 'verse' && liveContent.ref === verse.ref && liveContent.translation === verse.translation}
+                    isPinned={isPinned(verse)}
+                    isSelected={selectedVerseKeys.has(verse.ref)}
+                    onTogglePin={() => togglePin(verse)}
+                    onClick={(e) => {
+                      if (e.ctrlKey || e.metaKey) {
+                        setSelectedVerseKeys((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(verse.ref)) next.delete(verse.ref)
+                          else next.add(verse.ref)
+                          return next
+                        })
+                        return
+                      }
+                      const parsed = parseReference(verse.ref)
+                      if (parsed) openReference(parsed)
+                      onSendPreview(verse)
+                    }}
+                    onDoubleClick={() => {
+                      const parsed = parseReference(verse.ref)
+                      if (parsed) openReference(parsed)
+                      onSendPreview(verse)
+                      onSendLive(verse)
+                      onSendStageContent?.({ type: 'verse', ref: verse.ref, translation: verse.translation, text: verse.text })
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         </>
         )}
 
@@ -1083,35 +1269,41 @@ function VerseCard({
   isPreview,
   isLive,
   isPinned,
-  onSendPreview,
-  onSendLive,
-  onSendStage,
+  isSelected,
   onTogglePin,
+  onClick,
+  onDoubleClick,
 }: {
   verse: Verse
   isPreview: boolean
   isLive: boolean
   isPinned: boolean
-  onSendPreview: () => void
-  onSendLive: () => void
-  onSendStage?: () => void
+  isSelected: boolean
   onTogglePin: () => void
+  onClick: (e: React.MouseEvent) => void
+  onDoubleClick: () => void
 }) {
-  const t = useT()
   return (
     <div
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      title="Click to stage (Preview). Double-click to send everywhere. Ctrl/Cmd+click to multi-select for pinning."
       style={{
-        background: '#1B2318',
-        border: `1px solid ${isLive ? 'rgba(111,201,138,0.4)' : isPreview ? 'rgba(168,112,46,0.4)' : '#2A331F'}`,
+        background: isSelected ? 'rgba(168,112,46,0.1)' : '#1B2318',
+        border: `1px solid ${isSelected ? 'rgba(168,112,46,0.6)' : isLive ? 'rgba(111,201,138,0.4)' : isPreview ? 'rgba(168,112,46,0.4)' : '#2A331F'}`,
         borderRadius: 8,
         padding: '12px 14px',
         display: 'flex',
         gap: 12,
         alignItems: 'flex-start',
+        cursor: 'pointer',
       }}
     >
       <button
-        onClick={onTogglePin}
+        onClick={(e) => {
+          e.stopPropagation()
+          onTogglePin()
+        }}
         title={isPinned ? 'Unpin' : 'Pin for fast reference'}
         style={{
           display: 'flex',
@@ -1126,18 +1318,6 @@ function VerseCard({
           color: isPinned ? '#A8702E' : '#8F9885',
           fontSize: 10,
           fontFamily: 'inherit',
-        }}
-        onMouseEnter={(e) => {
-          if (!isPinned) {
-            e.currentTarget.style.borderColor = 'rgba(168,112,46,0.4)'
-            e.currentTarget.style.color = '#A8702E'
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!isPinned) {
-            e.currentTarget.style.borderColor = '#2A331F'
-            e.currentTarget.style.color = '#8F9885'
-          }
         }}
       >
         <svg width="12" height="12" viewBox="0 0 14 14" fill={isPinned ? 'currentColor' : 'none'}>
@@ -1183,65 +1363,6 @@ function VerseCard({
           )}
         </div>
         <div style={{ fontSize: 12, color: '#EDEAE0', lineHeight: 1.65 }}>{verse.text}</div>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flexShrink: 0 }}>
-        <button
-          onClick={onSendPreview}
-          style={{
-            background: isPreview ? 'rgba(168,112,46,0.12)' : 'transparent',
-            border: '1px solid rgba(168,112,46,0.4)',
-            borderRadius: 6,
-            padding: '5px 11px',
-            fontSize: 11,
-            fontWeight: 600,
-            color: '#A8702E',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            fontFamily: 'inherit',
-          }}
-        >
-          {t.sendToPreview}
-        </button>
-        <button
-          onClick={onSendLive}
-          style={{
-            background: '#A8702E',
-            border: 'none',
-            borderRadius: 6,
-            padding: '5px 11px',
-            fontSize: 11,
-            fontWeight: 600,
-            color: '#10160F',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            fontFamily: 'inherit',
-            transition: 'background 0.15s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = '#C08A44')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = '#A8702E')}
-        >
-          {t.sendToLive}
-        </button>
-        {onSendStage && (
-          <button
-            onClick={onSendStage}
-            title="Replaces the Stage timer with this verse while shown"
-            style={{
-              background: 'transparent',
-              border: '1px solid #C97A4A',
-              borderRadius: 6,
-              padding: '5px 11px',
-              fontSize: 11,
-              fontWeight: 600,
-              color: '#C97A4A',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              fontFamily: 'inherit',
-            }}
-          >
-            Send to Stage
-          </button>
-        )}
       </div>
     </div>
   )
