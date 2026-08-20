@@ -220,6 +220,8 @@ export default function SongLyricsScreen({
   const [showMerge, setShowMerge] = useState(false)
   const [showOnlineSearch, setShowOnlineSearch] = useState(false)
   const [onlineQuery, setOnlineQuery] = useState('')
+  const [onlineSearchStep, setOnlineSearchStep] = useState<'query' | 'sources'>('query')
+  const [selectedOnlineTitle, setSelectedOnlineTitle] = useState('')
   // ALT-fix: the "···" more-options button had no onClick at all.
   const [moreOptionsForId, setMoreOptionsForId] = useState<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
@@ -383,23 +385,40 @@ export default function SongLyricsScreen({
     if (slides[0]) pinSlide(song, slides[0], 0)
   }
 
+  const [quickEntryError, setQuickEntryError] = useState('')
+  // ALT-fix: section labels in Parsed Preview are now editable per section
+  // -- an input+datalist combo lets the operator pick a common label
+  // (Verse 2, Chorus, Intro, etc.) or type any custom one.
+  const [sectionLabelOverrides, setSectionLabelOverrides] = useState<Record<number, string>>({})
+
   function saveQuickEntry() {
-    if (!quickEntryTitle.trim()) return
-    setSongs((prev) => [
-      ...prev,
-      {
-        id: `qe-${Date.now()}`,
-        title: quickEntryTitle.trim(),
-        artist: 'Quick entry',
-        source: 'Imported',
-        isHymn: false,
-        linesPerSlide: 2,
-        sections: parsedPreview.map((s) => ({ label: s.section, lines: s.lines })),
-      },
-    ])
+    if (!quickEntryTitle.trim()) {
+      setQuickEntryError('Please enter a song title before saving.')
+      return
+    }
+    if (parsedPreview.length === 0) {
+      setQuickEntryError('No lyrics detected -- paste the lyrics above (blank line between sections).')
+      return
+    }
+    setQuickEntryError('')
+    const newSong: Song = {
+      id: `qe-${Date.now()}`,
+      title: quickEntryTitle.trim(),
+      artist: 'Quick entry',
+      source: 'Imported',
+      isHymn: false,
+      linesPerSlide: 2,
+      sections: parsedPreview.map((s, i) => ({ label: sectionLabelOverrides[i] ?? s.section, lines: s.lines })),
+    }
+    setSongs((prev) => [...prev, newSong])
     setQuickEntryTitle('')
     setQuickEntryText('')
+    setSectionLabelOverrides({})
     setShowQuickEntry(false)
+    // ALT-fix: open the newly saved song right away as undeniable proof
+    // it actually saved, instead of the panel just closing with nothing
+    // to show for it.
+    setOpenedSongId(newSong.id)
   }
 
   const parsedPreview = parseQuickEntry(quickEntryText)
@@ -635,40 +654,74 @@ ${simulatedInput}`)
             no real lyrics API wired up in this prototype. */}
         {showOnlineSearch && (
           <div style={{ background: '#1B2318', border: '1px solid rgba(168,112,46,0.3)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-            <input
-              value={onlineQuery}
-              onChange={(e) => setOnlineQuery(e.target.value)}
-              placeholder="Search for a song title or artist online..."
-              style={{ width: '100%', background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '7px 10px', fontSize: 12, color: '#EDEAE0', outline: 'none', fontFamily: 'inherit', marginBottom: 10, boxSizing: 'border-box' }}
-            />
-            {onlineQuery.trim() ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <p style={{ fontSize: 10, color: '#3A4430', margin: '0 0 4px' }}>
-                  No live lyrics API is connected in this prototype -- picking a result opens Quick Text Entry
-                  pre-filled with the title, so you can paste and preview the real lyrics before saving anything.
-                </p>
-                {[`${onlineQuery} (Live)`, `${onlineQuery} (Studio Version)`].map((title, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '8px 10px' }}>
-                    <span style={{ flex: 1, fontSize: 12, color: '#EDEAE0' }}>{title}</span>
-                    <button
-                      onClick={() => {
-                        setQuickEntryTitle(title)
-                        setQuickEntryText('')
-                        setShowOnlineSearch(false)
-                        setOnlineQuery('')
-                        setShowQuickEntry(true)
-                      }}
-                      style={{ background: '#A8702E', border: 'none', borderRadius: 5, padding: '4px 10px', fontSize: 10, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
-                    >
-                      Use This Title
-                    </button>
+            {onlineSearchStep === 'query' ? (
+              <>
+                <input
+                  value={onlineQuery}
+                  onChange={(e) => setOnlineQuery(e.target.value)}
+                  placeholder="Search for a song title or artist online..."
+                  style={{ width: '100%', background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '7px 10px', fontSize: 12, color: '#EDEAE0', outline: 'none', fontFamily: 'inherit', marginBottom: 10, boxSizing: 'border-box' }}
+                />
+                {onlineQuery.trim() ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <p style={{ fontSize: 10, color: '#3A4430', margin: '0 0 4px' }}>
+                      No live lyrics API is connected in this prototype -- picking a title shows possible
+                      sources to choose from, then opens Quick Text Entry so you can paste and preview the
+                      real lyrics before saving anything.
+                    </p>
+                    {[`${onlineQuery} (Live)`, `${onlineQuery} (Studio Version)`].map((title, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '8px 10px' }}>
+                        <span style={{ flex: 1, fontSize: 12, color: '#EDEAE0' }}>{title}</span>
+                        <button
+                          onClick={() => {
+                            setSelectedOnlineTitle(title)
+                            setOnlineSearchStep('sources')
+                          }}
+                          style={{ background: '#A8702E', border: 'none', borderRadius: 5, padding: '4px 10px', fontSize: 10, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          Use This Title
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <p style={{ fontSize: 11, color: '#3A4430', margin: 0 }}>
+                    Type a song title or artist to search (simulated -- no live lyrics API connected in this prototype).
+                  </p>
+                )}
+              </>
             ) : (
-              <p style={{ fontSize: 11, color: '#3A4430', margin: 0 }}>
-                Type a song title or artist to search (simulated -- no live lyrics API connected in this prototype).
-              </p>
+              <>
+                <button
+                  onClick={() => setOnlineSearchStep('query')}
+                  style={{ background: 'transparent', border: 'none', color: '#8F9885', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', padding: 0, marginBottom: 10 }}
+                >
+                  ← Back to results
+                </button>
+                <p style={{ fontSize: 11, color: '#EDEAE0', margin: '0 0 10px' }}>
+                  Sources for <strong>{selectedOnlineTitle}</strong> -- pick the correct match:
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {['Genius Lyrics', 'Official Lyric Video (YouTube)', 'AZLyrics'].map((source, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '8px 10px' }}>
+                      <span style={{ flex: 1, fontSize: 12, color: '#EDEAE0' }}>{source}</span>
+                      <button
+                        onClick={() => {
+                          setQuickEntryTitle(selectedOnlineTitle)
+                          setQuickEntryText('')
+                          setShowOnlineSearch(false)
+                          setOnlineQuery('')
+                          setOnlineSearchStep('query')
+                          setShowQuickEntry(true)
+                        }}
+                        style={{ background: '#A8702E', border: 'none', borderRadius: 5, padding: '4px 10px', fontSize: 10, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        Select This Version
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}
@@ -768,6 +821,9 @@ ${simulatedInput}`)
               >
                 Save Song
               </button>
+              {quickEntryError && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#ff6060' }}>{quickEntryError}</div>
+              )}
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', color: '#8F9885', textTransform: 'uppercase', marginBottom: 8 }}>
@@ -775,13 +831,48 @@ ${simulatedInput}`)
               </div>
               {parsedPreview.length === 0 ? (
                 <div style={{ fontSize: 11, color: '#3A4430' }}>
-                  Mark sections with [Verse 1], [Chorus], etc.
+                  Paste lyrics above (blank line between sections), or mark sections with [Verse 1], [Chorus], etc.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <datalist id="section-label-options">
+                    <option value="Verse 1" />
+                    <option value="Verse 2" />
+                    <option value="Verse 3" />
+                    <option value="Verse 4" />
+                    <option value="Pre-Chorus" />
+                    <option value="Chorus" />
+                    <option value="Chorus 1" />
+                    <option value="Chorus 2" />
+                    <option value="Bridge" />
+                    <option value="Intro" />
+                    <option value="Outro" />
+                    <option value="Vamp" />
+                    <option value="Interlude" />
+                    <option value="Tag" />
+                  </datalist>
                   {parsedPreview.map((sec, i) => (
                     <div key={i} style={{ background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '8px 10px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: '#A8702E', marginBottom: 4 }}>{sec.section}</div>
+                      <input
+                        list="section-label-options"
+                        value={sectionLabelOverrides[i] ?? sec.section}
+                        onChange={(e) =>
+                          setSectionLabelOverrides((prev) => ({ ...prev, [i]: e.target.value }))
+                        }
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid #2A331F',
+                          borderRadius: 4,
+                          padding: '2px 6px',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: '#A8702E',
+                          outline: 'none',
+                          fontFamily: 'inherit',
+                          marginBottom: 4,
+                          width: 130,
+                        }}
+                      />
                       {sec.lines.map((line, j) => (
                         <div key={j} style={{ fontSize: 11, color: '#EDEAE0', lineHeight: 1.6 }}>{line}</div>
                       ))}
