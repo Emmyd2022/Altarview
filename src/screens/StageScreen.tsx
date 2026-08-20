@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { StageTimerState } from '../hooks/useStageTimer'
+import type { DisplayContent } from './OutputStage'
 
 // ALT-018: this is the OUTPUT the person on stage actually sees. It shows
 // only the session name (header) and a large timer -- no Start/Pause/
@@ -10,12 +11,18 @@ import type { StageTimerState } from '../hooks/useStageTimer'
 // but pressing Escape returns to the operator -- invisible to whoever is
 // reading this screen from the stage, but always available to whoever is
 // actually running the app.
+//
+// ALT: "Send to Stage" -- scripture/songs/slides can be pushed here from
+// the Operator panel, entirely replacing the timer view while shown. The
+// timer automatically comes back once Stage content is cleared.
 export default function StageScreen({
   state,
   onExit,
+  content,
 }: {
   state: StageTimerState
   onExit: () => void
+  content?: DisplayContent | null
 }) {
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -37,6 +44,53 @@ export default function StageScreen({
 
   // ALT-020: flash "TIME UP" on/off every 500ms while flashing is active.
   const showFlashText = flashing && flashCount % 2 === 0
+
+  // ALT: when something has been sent to Stage, it takes over the whole
+  // screen -- the timer view returns automatically once cleared.
+  if (content) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          background: '#000',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '6vw',
+          overflow: 'hidden',
+        }}
+      >
+        {content.type === 'verse' && (
+          <div style={{ maxWidth: 900, textAlign: 'center' }}>
+            <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: '3.2vw', color: '#fff', lineHeight: 1.5 }}>
+              "{content.text}"
+            </div>
+            <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: '1.4vw', color: '#A8702E', marginTop: 24 }}>
+              {content.ref} · {content.translation}
+            </div>
+          </div>
+        )}
+        {content.type === 'song' && (
+          <div style={{ maxWidth: 900, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {content.lines.map((line, i) => (
+              <div key={i} style={{ fontFamily: 'Inter, Segoe UI, sans-serif', fontSize: '2.8vw', fontWeight: 600, color: '#fff' }}>
+                {line}
+              </div>
+            ))}
+            <div style={{ fontFamily: 'Inter, Segoe UI, sans-serif', fontSize: '1.2vw', color: '#A8702E', marginTop: 8 }}>
+              {content.title}
+            </div>
+          </div>
+        )}
+        {content.type === 'slide' && (
+          <div style={{ maxWidth: 900, textAlign: 'center', fontFamily: 'Inter, Segoe UI, sans-serif', fontSize: '2.6vw', fontWeight: 500, color: '#fff', whiteSpace: 'pre-wrap' }}>
+            {content.text}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div

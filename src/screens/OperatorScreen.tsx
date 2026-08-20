@@ -110,6 +110,7 @@ export default function OperatorScreen({
   onChangeSongs,
   onSendPreviewContent,
   onSendLiveContent,
+  onSendStageContent,
   sessions,
 }: {
   page: OperatorPage
@@ -129,6 +130,7 @@ export default function OperatorScreen({
   onChangeSongs?: (songs: Song[]) => void
   onSendPreviewContent?: (content: DisplayContent) => void
   onSendLiveContent?: (content: DisplayContent) => void
+  onSendStageContent?: (content: DisplayContent) => void
   sessions?: ServiceSession[]
 }) {
   const t = useT()
@@ -388,6 +390,7 @@ export default function OperatorScreen({
                   isPinned={isPinned(verse)}
                   onSendPreview={() => onSendPreview(verse)}
                   onSendLive={() => onSendLive(verse)}
+                  onSendStage={onSendStageContent ? () => onSendStageContent({ type: 'verse', ref: verse.ref, translation: verse.translation, text: verse.text }) : undefined}
                   onTogglePin={() => togglePin(verse)}
                 />
               ))}
@@ -404,6 +407,7 @@ export default function OperatorScreen({
             <SongLyricsScreen
               onSendPreview={onSendPreviewContent}
               onSendLive={onSendLiveContent}
+              onSendStage={onSendStageContent}
               songs={songs}
               onChangeSongs={onChangeSongs}
               onPin={(item) => pinItem(item)}
@@ -412,7 +416,7 @@ export default function OperatorScreen({
         )}
         {page === 'slides' && (
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <SermonSlidesScreen onSendLive={onSendLiveContent} onPin={(item) => pinItem(item)} />
+            <SermonSlidesScreen onSendLive={onSendLiveContent} onSendStage={onSendStageContent} onPin={(item) => pinItem(item)} />
           </div>
         )}
         {page === 'timer' && (
@@ -991,6 +995,7 @@ function VerseCard({
   isPinned,
   onSendPreview,
   onSendLive,
+  onSendStage,
   onTogglePin,
 }: {
   verse: Verse
@@ -999,6 +1004,7 @@ function VerseCard({
   isPinned: boolean
   onSendPreview: () => void
   onSendLive: () => void
+  onSendStage?: () => void
   onTogglePin: () => void
 }) {
   const t = useT()
@@ -1126,6 +1132,26 @@ function VerseCard({
         >
           {t.sendToLive}
         </button>
+        {onSendStage && (
+          <button
+            onClick={onSendStage}
+            title="Replaces the Stage timer with this verse while shown"
+            style={{
+              background: 'transparent',
+              border: '1px solid #C97A4A',
+              borderRadius: 6,
+              padding: '5px 11px',
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#C97A4A',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              fontFamily: 'inherit',
+            }}
+          >
+            Send to Stage
+          </button>
+        )}
       </div>
     </div>
   )

@@ -196,15 +196,19 @@ export default function SettingsScreen() {
             </div>
           </SettingsCard>
 
-          {/* NDI Output */}
-          <SettingsCard title="NDI Output">
+          {/* NDI Output -- ALT: relabeled for clarity, since there are two
+              legitimate but different NDI features in this app (see
+              Output Routing below for the other one). */}
+          <SettingsCard title="NDI Broadcast Output">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 500, color: '#EDEAE0', marginBottom: 3 }}>
-                  Virtual camera output
+                  Broadcast the whole show as one NDI feed
                 </div>
                 <div style={{ fontSize: 11, color: '#8F9885', lineHeight: 1.5 }}>
-                  Sends projector output as an NDI video source on the local network, compatible with OBS and vMix.
+                  For streaming: sends your entire compiled program (whatever is on Live) as a single NDI video
+                  source so software like OBS or vMix can pull it in. This is separate from Output Routing below,
+                  which is about delivering individual screens (Live/Preview/Stage) to specific displays.
                 </div>
               </div>
               <Toggle value={ndiEnabled} onChange={setNdiEnabled} />
@@ -218,7 +222,9 @@ export default function SettingsScreen() {
           <SettingsCard title="Output Routing">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <p style={{ fontSize: 11, color: '#8F9885', lineHeight: 1.5, margin: 0, maxWidth: 360 }}>
-                Assign each output to a physical monitor, NDI, or a windowed placeholder. Detecting real
+                Assign each output to a physical monitor, a windowed placeholder, or NDI as a cable
+                replacement (e.g. delivering Stage to a receiver box near the pulpit over your network instead
+                of running an HDMI cable) — different from the whole-show NDI Broadcast above. Detecting real
                 screens needs the browser's screen-permission prompt; without it, a simulated multi-monitor
                 setup is shown so this still works everywhere.
               </p>

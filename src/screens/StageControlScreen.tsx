@@ -10,10 +10,14 @@ export default function StageControlScreen({
   state,
   onOpenStageOutput,
   onPushToLive,
+  hasStageContent,
+  onClearStage,
 }: {
   state: StageTimerState
   onOpenStageOutput?: () => void
   onPushToLive?: (content: TimerDisplayContent) => void
+  hasStageContent?: boolean
+  onClearStage?: () => void
 }) {
   const [messageInput, setMessageInput] = useState('')
 
@@ -59,6 +63,31 @@ export default function StageControlScreen({
         </span>
         <StatusPill />
         <div style={{ flex: 1 }} />
+        {/* ALT: Send to Stage indicator + clear -- content sent from
+            Operator (scripture/song/slide) replaces the timer on Stage
+            while shown; this is how the operator brings the timer back. */}
+        {hasStageContent && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
+            <span style={{ fontSize: 11, color: '#A8702E' }}>Content on Stage</span>
+            {onClearStage && (
+              <button
+                onClick={onClearStage}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(168,112,46,0.4)',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  color: '#A8702E',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Clear Stage (show timer)
+              </button>
+            )}
+          </div>
+        )}
         {onOpenStageOutput && (
           <button
             onClick={onOpenStageOutput}

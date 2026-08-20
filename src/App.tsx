@@ -224,6 +224,9 @@ export default function App() {
   // one source of truth instead of each faking its own local state.
   const [previewContent, setPreviewContent] = useState<DisplayContent | null>(null)
   const [liveContent, setLiveContent] = useState<DisplayContent | null>(null)
+  // ALT: Send to Stage -- separate from Preview/Live, replaces the Stage
+  // timer view entirely while set, per the confirmed behavior.
+  const [stageContent, setStageContent] = useState<DisplayContent | null>(null)
   // ALT-017/018/019: lifted so the Stage output and the operator's Stage
   // Control panel share one timer instead of each faking its own.
   // ALT-022: sessions are lifted here too, so the Playlist editor and the
@@ -268,7 +271,7 @@ export default function App() {
   if (screen === 'stage') {
     return (
       <div style={{ width: '100vw', height: '100vh' }}>
-        <StageScreen state={stageTimer} onExit={() => setScreen('operator')} />
+        <StageScreen state={stageTimer} onExit={() => setScreen('operator')} content={stageContent} />
       </div>
     )
   }
@@ -301,6 +304,7 @@ export default function App() {
         onChangeSongs={setSongs}
         onSendPreviewContent={(content) => setPreviewContent(content)}
         onSendLiveContent={(content) => setLiveContent(content)}
+        onSendStageContent={(content) => setStageContent(content)}
         sessions={sessions}
       />
     ),
@@ -334,6 +338,8 @@ export default function App() {
         state={stageTimer}
         onOpenStageOutput={() => setScreen('stage')}
         onPushToLive={(content) => setLiveContent(content)}
+        hasStageContent={!!stageContent}
+        onClearStage={() => setStageContent(null)}
       />
     ),
   }

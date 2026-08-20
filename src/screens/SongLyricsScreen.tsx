@@ -165,12 +165,14 @@ function MergeCandidateRow({
 export default function SongLyricsScreen({
   onSendPreview,
   onSendLive,
+  onSendStage,
   songs: songsProp,
   onChangeSongs,
   onPin,
 }: {
   onSendPreview?: (content: DisplayContent) => void
   onSendLive?: (content: DisplayContent) => void
+  onSendStage?: (content: DisplayContent) => void
   songs?: Song[]
   onChangeSongs?: (songs: Song[]) => void
   onPin?: (item: Omit<PinnedItem, 'id'>) => void
@@ -641,6 +643,15 @@ export default function SongLyricsScreen({
                   style={{ background: '#A8702E', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
                 >
                   Send to Live
+                </button>
+              )}
+              {onSendStage && (
+                <button
+                  onClick={() => onSendStage(slideToContent(nowPlayingSong, currentSlide.lines, slideIndex))}
+                  title="Replaces the Stage timer with this slide while shown"
+                  style={{ background: 'transparent', border: '1px solid #C97A4A', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#C97A4A', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  Send to Stage
                 </button>
               )}
             </div>

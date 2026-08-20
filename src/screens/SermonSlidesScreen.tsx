@@ -38,9 +38,11 @@ const INITIAL_SAVED_DECKS: SavedDeck[] = [
 
 export default function SermonSlidesScreen({
   onSendLive,
+  onSendStage,
   onPin,
 }: {
   onSendLive?: (content: DisplayContent) => void
+  onSendStage?: (content: DisplayContent) => void
   onPin?: (item: Omit<PinnedItem, 'id'>) => void
 } = {}) {
   const [slides, setSlides] = useState(INITIAL_SLIDES)
@@ -166,6 +168,24 @@ export default function SermonSlidesScreen({
                 }}
               >
                 Send to Live
+              </button>
+            )}
+            {onSendStage && (
+              <button
+                onClick={() => onSendStage({ type: 'slide', text: activeSlide.text })}
+                title="Replaces the Stage timer with this slide while shown"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #C97A4A',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  color: '#C97A4A',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Send to Stage
               </button>
             )}
             {onPin && (
