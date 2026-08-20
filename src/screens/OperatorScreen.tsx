@@ -179,10 +179,47 @@ export default function OperatorScreen({
     : []
   const openedCombinedText = openedVerses.map((v) => v.text).join(' ')
   const openedLabel = openedRange ? rangeLabel(openedRange.book, openedRange.chapter, openedRange.start, openedRange.end) : ''
+  // ALT: FreeShow-style context -- show the whole chapter (verses before
+  // and after the target range), not just the isolated target verses, so
+  // the operator can see what comes next before deciding what to send.
+  const chapterVerses = openedRange
+    ? getVerseRange(openedRange.book, openedRange.chapter, 1, chapterVerseCount(openedRange.book, openedRange.chapter), translation)
+    : []
 
   function openedRangeToContent(): DisplayContent | null {
     if (!openedRange || openedVerses.length === 0) return null
     return { type: 'verse', ref: openedLabel, translation, text: openedCombinedText }
+  }
+
+  // Clicking a verse within the chapter context sets it as the new single-
+  // verse target (or extends the range with Shift, matching common list-
+  // selection convention) and stages it to Preview.
+  function selectVerseInChapter(verseNum: number, extend: boolean) {
+    if (!openedRange) return
+    if (extend) {
+      setOpenedRange({ ...openedRange, start: Math.min(openedRange.start, verseNum), end: Math.max(openedRange.end, verseNum) })
+    } else {
+      setOpenedRange({ ...openedRange, start: verseNum, end: verseNum })
+    }
+    const content = openedRangeToContentFor(openedRange.book, openedRange.chapter, extend ? Math.min(openedRange.start, verseNum) : verseNum, extend ? Math.max(openedRange.end, verseNum) : verseNum)
+    if (content) onSendPreviewContent?.(content)
+  }
+
+  function sendVerseInChapter(verseNum: number) {
+    if (!openedRange) return
+    setOpenedRange({ ...openedRange, start: verseNum, end: verseNum })
+    const content = openedRangeToContentFor(openedRange.book, openedRange.chapter, verseNum, verseNum)
+    if (content) {
+      onSendPreviewContent?.(content)
+      onSendLiveContent?.(content)
+      onSendStageContent?.(content)
+    }
+  }
+
+  function openedRangeToContentFor(book: string, chapter: number, start: number, end: number): DisplayContent | null {
+    const verses = getVerseRange(book, chapter, start, end, translation)
+    if (verses.length === 0) return null
+    return { type: 'verse', ref: rangeLabel(book, chapter, start, end), translation, text: verses.map((v) => v.text).join(' ') }
   }
 
   function goToNextVerse() {
@@ -533,18 +570,39 @@ export default function OperatorScreen({
               </button>
             </div>
 
-            {openedVerses.length === 0 ? (
+            {chapterVerses.length === 0 ? (
               <div style={{ fontSize: 12, color: '#8F9885' }}>
                 Not available in {translation} in this prototype's loaded Bible data.
               </div>
             ) : (
-              <div style={{ background: '#1B2318', border: '1px solid #2A331F', borderRadius: 8, padding: 14, marginBottom: 14 }}>
-                {openedVerses.map((v) => (
-                  <div key={v.verse} style={{ fontSize: 13, color: '#EDEAE0', lineHeight: 1.8, marginBottom: 4 }}>
-                    <span style={{ color: '#A8702E', fontSize: 10, fontWeight: 600, marginRight: 6 }}>{v.verse}</span>
-                    {v.text}
-                  </div>
-                ))}
+              <div style={{ background: '#1B2318', border: '1px solid #2A331F', borderRadius: 8, padding: 14, marginBottom: 14, maxHeight: 360, overflowY: 'auto' }}>
+                <p style={{ fontSize: 10, color: '#3A4430', margin: '0 0 10px' }}>
+                  Whole chapter shown for context (FreeShow-style) -- click any verse to jump there, Shift+click to
+                  extend the range, double-click to send everywhere.
+                </p>
+                {chapterVerses.map((v) => {
+                  const isTarget = openedRange && v.verse >= openedRange.start && v.verse <= openedRange.end
+                  return (
+                    <div
+                      key={v.verse}
+                      onClick={(e) => selectVerseInChapter(v.verse, e.shiftKey)}
+                      onDoubleClick={() => sendVerseInChapter(v.verse)}
+                      style={{
+                        fontSize: 13,
+                        color: isTarget ? '#EDEAE0' : '#8F9885',
+                        background: isTarget ? 'rgba(168,112,46,0.1)' : 'transparent',
+                        lineHeight: 1.8,
+                        marginBottom: 2,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span style={{ color: isTarget ? '#A8702E' : '#3A4430', fontSize: 10, fontWeight: 600, marginRight: 6 }}>{v.verse}</span>
+                      {v.text}
+                    </div>
+                  )
+                })}
               </div>
             )}
 
