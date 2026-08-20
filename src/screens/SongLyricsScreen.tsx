@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song, type SongSlide } from '../songModel'
 import type { DisplayContent } from './OutputStage'
 import type { PinnedItem } from '../pinModel'
@@ -169,6 +169,8 @@ export default function SongLyricsScreen({
   songs: songsProp,
   onChangeSongs,
   onPin,
+  openRequest,
+  onOpenRequestHandled,
 }: {
   onSendPreview?: (content: DisplayContent) => void
   onSendLive?: (content: DisplayContent) => void
@@ -176,6 +178,11 @@ export default function SongLyricsScreen({
   songs?: Song[]
   onChangeSongs?: (songs: Song[]) => void
   onPin?: (item: Omit<PinnedItem, 'id'>) => void
+  // ALT: lets a pinned item (or anything else outside this screen) command
+  // it to open a specific song, e.g. from the Pinned panel's Open/Send
+  // buttons.
+  openRequest?: { songId: string; slideIndex?: number } | null
+  onOpenRequestHandled?: () => void
 } = {}) {
   // ALT: "opened" song replaces the library list with the full lyrics
   // view (EasyWorship/OpenLP style) -- this is the primary way the
@@ -199,6 +206,9 @@ export default function SongLyricsScreen({
   const [quickEntryText, setQuickEntryText] = useState('')
   const [quickEntryTitle, setQuickEntryTitle] = useState('')
   const [showMerge, setShowMerge] = useState(false)
+  const [showOnlineSearch, setShowOnlineSearch] = useState(false)
+  const [onlineQuery, setOnlineQuery] = useState('')
+  const [showImportPicker, setShowImportPicker] = useState(false)
   const [mergeCandidates, setMergeCandidates] = useState(MERGE_CANDIDATES)
 
   const byTab = tab === 'Hymns' ? songs.filter((s) => s.isHymn) : songs
@@ -223,6 +233,20 @@ export default function SongLyricsScreen({
   const openedSlides = openedSong ? buildSlides(openedSong) : []
   const activeSlide: SongSlide | null =
     activeSlideKey && activeSlideKey.songId === openedSongId ? openedSlides[activeSlideKey.slideIndex] ?? null : null
+
+  // ALT: consume an external open request (e.g. from a pinned item's
+  // Open/Send button), then signal it's been handled so the caller can
+  // clear it -- avoids re-triggering on every re-render.
+  useEffect(() => {
+    if (openRequest) {
+      setOpenedSongId(openRequest.songId)
+      if (openRequest.slideIndex !== undefined) {
+        setActiveSlideKey({ songId: openRequest.songId, slideIndex: openRequest.slideIndex })
+      }
+      onOpenRequestHandled?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest])
 
   // ALT: simulated auto-detection -- real detection needs the Deepgram
   // audio pipeline from the project plan (backend work outside this
@@ -440,26 +464,19 @@ export default function SongLyricsScreen({
           Quick Text Entry
         </button>
         <button
+          onClick={() => setShowOnlineSearch((v) => !v)}
           style={{
-            background: 'transparent',
-            border: '1px solid #2A331F',
+            background: showOnlineSearch ? 'rgba(168,112,46,0.14)' : 'transparent',
+            border: showOnlineSearch ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
             borderRadius: 6,
             padding: '4px 10px',
             fontSize: 11,
-            color: '#8F9885',
+            color: showOnlineSearch ? '#A8702E' : '#8F9885',
             cursor: 'pointer',
             fontFamily: 'inherit',
             display: 'flex',
             alignItems: 'center',
             gap: 5,
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = '#A8702E'
-            e.currentTarget.style.color = '#A8702E'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = '#2A331F'
-            e.currentTarget.style.color = '#8F9885'
           }}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -469,6 +486,7 @@ export default function SongLyricsScreen({
           Search online lyrics
         </button>
         <button
+          onClick={() => setShowImportPicker((v) => !v)}
           style={{
             background: '#A8702E',
             border: 'none',
@@ -555,6 +573,88 @@ export default function SongLyricsScreen({
             </>
           )}
         </div>
+
+        {/* ALT: Search online lyrics -- simulated result set, since there is
+            no real lyrics API wired up in this prototype. */}
+        {showOnlineSearch && (
+          <div style={{ background: '#1B2318', border: '1px solid rgba(168,112,46,0.3)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+            <input
+              value={onlineQuery}
+              onChange={(e) => setOnlineQuery(e.target.value)}
+              placeholder="Search for a song title or artist online..."
+              style={{ width: '100%', background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '7px 10px', fontSize: 12, color: '#EDEAE0', outline: 'none', fontFamily: 'inherit', marginBottom: 10, boxSizing: 'border-box' }}
+            />
+            {onlineQuery.trim() ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[`${onlineQuery} (Live)`, `${onlineQuery} (Studio Version)`].map((title, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '8px 10px' }}>
+                    <span style={{ flex: 1, fontSize: 12, color: '#EDEAE0' }}>{title}</span>
+                    <button
+                      onClick={() => {
+                        setSongs((prev) => [
+                          ...prev,
+                          {
+                            id: `online-${Date.now()}-${i}`,
+                            title,
+                            artist: 'Unknown',
+                            source: 'Online',
+                            isHymn: false,
+                            linesPerSlide: 2,
+                            sections: [{ label: 'Verse 1', lines: ['Lyrics not yet fetched -- edit via Quick Text Entry'] }],
+                          },
+                        ])
+                        setShowOnlineSearch(false)
+                        setOnlineQuery('')
+                      }}
+                      style={{ background: '#A8702E', border: 'none', borderRadius: 5, padding: '4px 10px', fontSize: 10, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      Add to Library
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 11, color: '#3A4430', margin: 0 }}>
+                Type a song title or artist to search (simulated -- no live lyrics API connected in this prototype).
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ALT: Import Song -- file picker for lyric files (txt/pdf/docx in
+            the real app); adds a placeholder entry here since there is no
+            real file-parsing pipeline in this prototype. */}
+        {showImportPicker && (
+          <div style={{ background: '#1B2318', border: '1px solid rgba(168,112,46,0.3)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+            <input
+              type="file"
+              accept=".txt,.pdf,.docx"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                const dotIndex = file.name.lastIndexOf('.')
+                const baseName = dotIndex > 0 ? file.name.slice(0, dotIndex) : file.name
+                setSongs((prev) => [
+                  ...prev,
+                  {
+                    id: `import-${Date.now()}`,
+                    title: baseName,
+                    artist: 'Imported file',
+                    source: 'Imported',
+                    isHymn: false,
+                    linesPerSlide: 2,
+                    sections: [{ label: 'Verse 1', lines: ['Lyrics not yet parsed -- edit via Quick Text Entry'] }],
+                  },
+                ])
+                setShowImportPicker(false)
+              }}
+              style={{ fontSize: 12, color: '#8F9885' }}
+            />
+            <p style={{ fontSize: 10, color: '#3A4430', margin: '8px 0 0' }}>
+              Supports .txt, .pdf, .docx. Adds the song as a placeholder you can fill in with Quick Text Entry.
+            </p>
+          </div>
+        )}
 
         {/* ALT-009: Quick text entry */}
         {showQuickEntry && (

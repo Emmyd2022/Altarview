@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { DisplayContent } from './OutputStage'
 import type { PinnedItem } from '../pinModel'
 
@@ -40,10 +40,16 @@ export default function SermonSlidesScreen({
   onSendLive,
   onSendStage,
   onPin,
+  openRequestText,
+  onOpenRequestHandled,
 }: {
   onSendLive?: (content: DisplayContent) => void
   onSendStage?: (content: DisplayContent) => void
   onPin?: (item: Omit<PinnedItem, 'id'>) => void
+  // ALT: lets a pinned slide's Open/Send buttons ask this screen to select
+  // the matching slide, best-effort by text content.
+  openRequestText?: string | null
+  onOpenRequestHandled?: () => void
 } = {}) {
   const [slides, setSlides] = useState(INITIAL_SLIDES)
   const [activeId, setActiveId] = useState(1)
@@ -80,6 +86,17 @@ export default function SermonSlidesScreen({
   }
 
   const activeSlide = slides.find((s) => s.id === activeId)!
+
+  // ALT: consume an external open request (best-effort match by slide
+  // text content, since pinned slides only carry the text, not a stable id).
+  useEffect(() => {
+    if (openRequestText) {
+      const match = slides.find((s) => s.text === openRequestText)
+      if (match) setActiveId(match.id)
+      onOpenRequestHandled?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequestText])
 
   function updateText(text: string) {
     setSlides((prev) => prev.map((s) => (s.id === activeId ? { ...s, text } : s)))

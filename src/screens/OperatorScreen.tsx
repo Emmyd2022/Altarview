@@ -144,6 +144,11 @@ export default function OperatorScreen({
   // now supports any resource type (verse, song slide, sermon slide,
   // timer preset, Up Next transition), not just scriptures.
   const [pinned, setPinned] = useState<PinnedItem[]>([])
+  // ALT: controlled "open this specific item" requests, so a pinned item's
+  // Open/Send buttons can command Songs/Slides to open the right thing
+  // after switching pages.
+  const [songOpenRequest, setSongOpenRequest] = useState<{ songId: string; slideIndex?: number } | null>(null)
+  const [slideOpenRequest, setSlideOpenRequest] = useState<string | null>(null)
   const [dragPinIdx, setDragPinIdx] = useState<number | null>(null)
   const [dragOverPinIdx, setDragOverPinIdx] = useState<number | null>(null)
 
@@ -178,19 +183,44 @@ export default function OperatorScreen({
     setPinned((prev) => prev.filter((p) => p.id !== id))
   }
 
-  function sendPinnedItem(p: PinnedItem, destination: 'preview' | 'live') {
-    const send = destination === 'preview' ? onSendPreviewContent : onSendLiveContent
-    if (!send) return
-    if (p.type === 'verse' && p.verseRef && p.verseTranslation && p.verseText) {
-      send({ type: 'verse', ref: p.verseRef, translation: p.verseTranslation, text: p.verseText })
-    } else if (p.type === 'song' && p.songTitle && p.songLines) {
-      send({ type: 'song', title: p.songTitle, artist: p.songArtist ?? '', lines: p.songLines })
-    } else if (p.type === 'slide' && p.slideText) {
-      send({ type: 'slide', text: p.slideText })
+  // ALT: Open switches to the item's page and opens it there, without
+  // sending anything anywhere.
+  function openPinnedItem(p: PinnedItem) {
+    if (p.type === 'verse') {
+      onChangePage('scripture')
+      if (p.verseRef) setQuery(p.verseRef)
+    } else if (p.type === 'song') {
+      onChangePage('songs')
+      if (p.songTitle) {
+        const song = songs?.find((s) => s.title === p.songTitle)
+        if (song) setSongOpenRequest({ songId: song.id })
+      }
+    } else if (p.type === 'slide') {
+      onChangePage('slides')
+      if (p.slideText) setSlideOpenRequest(p.slideText)
     } else if (p.type === 'timer') {
       onChangePage('timer')
     } else if (p.type === 'up-next') {
       onChangePage('up-next')
+    }
+  }
+
+  // ALT: Send does everything Open does, PLUS pushes the content to
+  // Preview + Live + Stage at once.
+  function sendPinnedItem(p: PinnedItem) {
+    openPinnedItem(p)
+    let content: DisplayContent | null = null
+    if (p.type === 'verse' && p.verseRef && p.verseTranslation && p.verseText) {
+      content = { type: 'verse', ref: p.verseRef, translation: p.verseTranslation, text: p.verseText }
+    } else if (p.type === 'song' && p.songTitle && p.songLines) {
+      content = { type: 'song', title: p.songTitle, artist: p.songArtist ?? '', lines: p.songLines }
+    } else if (p.type === 'slide' && p.slideText) {
+      content = { type: 'slide', text: p.slideText }
+    }
+    if (content) {
+      onSendPreviewContent?.(content)
+      onSendLiveContent?.(content)
+      onSendStageContent?.(content)
     }
   }
 
@@ -411,12 +441,20 @@ export default function OperatorScreen({
               songs={songs}
               onChangeSongs={onChangeSongs}
               onPin={(item) => pinItem(item)}
+              openRequest={songOpenRequest}
+              onOpenRequestHandled={() => setSongOpenRequest(null)}
             />
           </div>
         )}
         {page === 'slides' && (
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <SermonSlidesScreen onSendLive={onSendLiveContent} onSendStage={onSendStageContent} onPin={(item) => pinItem(item)} />
+            <SermonSlidesScreen
+              onSendLive={onSendLiveContent}
+              onSendStage={onSendStageContent}
+              onPin={(item) => pinItem(item)}
+              openRequestText={slideOpenRequest}
+              onOpenRequestHandled={() => setSlideOpenRequest(null)}
+            />
           </div>
         )}
         {page === 'timer' && (
@@ -525,22 +563,20 @@ export default function OperatorScreen({
                   <span style={{ fontSize: 11, color: '#EDEAE0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {p.label} {p.detail && <span style={{ color: '#3A4430' }}>({p.detail})</span>}
                   </span>
+                  <button
+                    onClick={() => openPinnedItem(p)}
+                    title="Open (switches page, does not send)"
+                    style={{ background: 'none', border: '1px solid #2A331F', borderRadius: 4, color: '#8F9885', cursor: 'pointer', fontSize: 10, padding: '2px 6px', fontFamily: 'inherit' }}
+                  >
+                    Open
+                  </button>
                   {(p.type === 'verse' || p.type === 'song' || p.type === 'slide') && (
                     <button
-                      onClick={() => sendPinnedItem(p, 'live')}
-                      title="Send to Live"
-                      style={{ background: 'none', border: 'none', color: '#A8702E', cursor: 'pointer', fontSize: 10, padding: '0 3px', fontFamily: 'inherit' }}
+                      onClick={() => sendPinnedItem(p)}
+                      title="Send to Preview + Live + Stage, and open this page"
+                      style={{ background: 'none', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 4, color: '#A8702E', cursor: 'pointer', fontSize: 10, padding: '2px 6px', fontFamily: 'inherit' }}
                     >
                       Send
-                    </button>
-                  )}
-                  {(p.type === 'timer' || p.type === 'up-next') && (
-                    <button
-                      onClick={() => sendPinnedItem(p, 'live')}
-                      title="Go to this page"
-                      style={{ background: 'none', border: 'none', color: '#A8702E', cursor: 'pointer', fontSize: 10, padding: '0 3px', fontFamily: 'inherit' }}
-                    >
-                      Go
                     </button>
                   )}
                   <button
