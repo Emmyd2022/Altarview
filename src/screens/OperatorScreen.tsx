@@ -703,6 +703,21 @@ function OutputBox({
               </>
             )}
           </>
+        ) : content?.type === 'song' ? (
+          <>
+            {content.lines.map((line, i) => (
+              <div key={i} style={{ fontFamily: 'Inter, Segoe UI, sans-serif', fontSize: 9, fontWeight: 600, color: '#fff', textAlign: 'center', lineHeight: 1.4 }}>
+                {line}
+              </div>
+            ))}
+            <div style={{ fontFamily: 'Inter, Segoe UI, sans-serif', fontSize: 7, color: '#A8702E', textAlign: 'center', marginTop: 2 }}>
+              {content.title}
+            </div>
+          </>
+        ) : content?.type === 'slide' ? (
+          <div style={{ fontFamily: 'Inter, Segoe UI, sans-serif', fontSize: 8.5, fontWeight: 500, color: '#fff', textAlign: 'center', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
+            {content.text.length > 140 ? content.text.slice(0, 140) + '…' : content.text}
+          </div>
         ) : content?.type === 'timer' ? (
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 8, color: '#8F9885', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>

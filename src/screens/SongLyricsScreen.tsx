@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song } from '../songModel'
+import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song, type SongSlide } from '../songModel'
 import type { DisplayContent } from './OutputStage'
 import type { PinnedItem } from '../pinModel'
 
@@ -177,11 +177,13 @@ export default function SongLyricsScreen({
   onChangeSongs?: (songs: Song[]) => void
   onPin?: (item: Omit<PinnedItem, 'id'>) => void
 } = {}) {
-  // ALT: Now Playing state -- which song/slide is currently active for
-  // navigation (Next/Previous/section-jump) and sending to Preview/Live.
-  const [nowPlayingId, setNowPlayingId] = useState<string | null>(null)
-  const [showFullLyrics, setShowFullLyrics] = useState(false)
-  const [slideIndex, setSlideIndex] = useState(0)
+  // ALT: "opened" song replaces the library list with the full lyrics
+  // view (EasyWorship/OpenLP style) -- this is the primary way the
+  // operator now interacts with a song. "Active Selection" (renamed from
+  // "Now Playing") tracks which specific slide was last single/double
+  // clicked, for highlighting and for the quick-action row.
+  const [openedSongId, setOpenedSongId] = useState<string | null>(null)
+  const [activeSlideKey, setActiveSlideKey] = useState<{ songId: string; slideIndex: number } | null>(null)
   const [query, setQuery] = useState('')
   const [bulkSelect, setBulkSelect] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -217,6 +219,11 @@ export default function SongLyricsScreen({
     })
   }
 
+  const openedSong = songs.find((s) => s.id === openedSongId) ?? null
+  const openedSlides = openedSong ? buildSlides(openedSong) : []
+  const activeSlide: SongSlide | null =
+    activeSlideKey && activeSlideKey.songId === openedSongId ? openedSlides[activeSlideKey.slideIndex] ?? null : null
+
   // ALT: simulated auto-detection -- real detection needs the Deepgram
   // audio pipeline from the project plan (backend work outside this
   // frontend prototype). This simulates the same *logic*: check the local
@@ -242,8 +249,8 @@ export default function SongLyricsScreen({
           const matchIdx = songSlides.findIndex(
             (sl) => sl.sectionIndex === song.sections.indexOf(section) && sl.lines.some((l) => l.toLowerCase().includes(needle)),
           )
-          setNowPlayingId(song.id)
-          setSlideIndex(matchIdx === -1 ? 0 : matchIdx)
+          setOpenedSongId(song.id)
+          setActiveSlideKey({ songId: song.id, slideIndex: matchIdx === -1 ? 0 : matchIdx })
           setDetectStatus('matched')
           return
         }
@@ -253,33 +260,62 @@ export default function SongLyricsScreen({
     setDetectStatus('no-match')
   }
 
-  const nowPlayingSong = songs.find((s) => s.id === nowPlayingId) ?? null
-  const slides = nowPlayingSong ? buildSlides(nowPlayingSong) : []
-  const currentSlide = slides[slideIndex] ?? null
+  function openSong(song: Song) {
+    setOpenedSongId(song.id)
+  }
 
-  function playSong(song: Song) {
-    setNowPlayingId(song.id)
-    setSlideIndex(0)
+  function closeSong() {
+    setOpenedSongId(null)
   }
 
   function slideToContent(song: Song, slideLines: string[], idx: number): DisplayContent {
     return { type: 'song', title: song.title, artist: song.artist, lines: slideLines, songId: song.id, slideIndex: idx }
   }
 
-  function goNextSlide() {
-    if (slideIndex < slides.length - 1) setSlideIndex(slideIndex + 1)
+  // ALT: single click = Active Selection + Preview. Double click = Active
+  // Selection + Preview + Live + Stage. Applies to both the section
+  // quick-jump buttons and individual slide blocks in the full view.
+  function singleClickSlide(song: Song, slide: SongSlide, idx: number) {
+    setActiveSlideKey({ songId: song.id, slideIndex: idx })
+    const content = slideToContent(song, slide.lines, idx)
+    onSendPreview?.(content)
   }
 
-  function goPreviousSlide() {
-    if (slideIndex > 0) setSlideIndex(slideIndex - 1)
+  function doubleClickSlide(song: Song, slide: SongSlide, idx: number) {
+    setActiveSlideKey({ songId: song.id, slideIndex: idx })
+    const content = slideToContent(song, slide.lines, idx)
+    onSendPreview?.(content)
+    onSendLive?.(content)
+    onSendStage?.(content)
   }
 
   function jumpToSection(sectionIndex: number) {
-    setSlideIndex(firstSlideIndexForSection(slides, sectionIndex))
+    if (!openedSong) return
+    const idx = firstSlideIndexForSection(openedSlides, sectionIndex)
+    const slide = openedSlides[idx]
+    if (slide) singleClickSlide(openedSong, slide, idx)
   }
 
   function updateLinesPerSlide(id: string, lines: number) {
     setSongs((prev) => prev.map((s) => (s.id === id ? { ...s, linesPerSlide: Math.max(1, lines) } : s)))
+  }
+
+  function pinSlide(song: Song, slide: SongSlide, idx: number) {
+    onPin?.({
+      type: 'song',
+      label: song.title,
+      detail: slide.sectionLabel,
+      songTitle: song.title,
+      songArtist: song.artist,
+      songLines: slide.lines,
+    })
+  }
+
+  // ALT: pin directly from the library list, without opening the song --
+  // pins its first slide as a sensible default.
+  function pinFromList(song: Song) {
+    const slides = buildSlides(song)
+    if (slides[0]) pinSlide(song, slides[0], 0)
   }
 
   function saveQuickEntry() {
@@ -512,203 +548,13 @@ export default function SongLyricsScreen({
                 <span style={{ color: '#8F9885' }}>
                   {detectStatus === 'idle' && 'Waiting for input...'}
                   {detectStatus === 'checking' && 'Checking local database...'}
-                  {detectStatus === 'matched' && `Matched locally -- now playing "${nowPlayingSong?.title}"`}
+                  {detectStatus === 'matched' && `Matched locally -- opened "${openedSong?.title}"`}
                   {detectStatus === 'no-match' && 'Not found locally -- would check online next (no online lookup in this prototype)'}
                 </span>
               </div>
             </>
           )}
         </div>
-
-        {/* ALT: Now Playing panel -- current slide, section jump, Next/Previous, Send to Preview/Live */}
-        {nowPlayingSong && currentSlide && (
-          <div style={{ background: '#1B2318', border: '1px solid rgba(168,112,46,0.3)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#EDEAE0' }}>
-                Now Playing: {nowPlayingSong.title} <span style={{ color: '#8F9885', fontWeight: 400 }}>({currentSlide.sectionLabel})</span>
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button
-                  onClick={() => setShowFullLyrics((v) => !v)}
-                  style={{ background: 'transparent', border: 'none', color: showFullLyrics ? '#A8702E' : '#8F9885', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}
-                >
-                  {showFullLyrics ? 'Hide full lyrics' : 'Show full lyrics'}
-                </button>
-                <button
-                  onClick={() => setNowPlayingId(null)}
-                  style={{ background: 'transparent', border: 'none', color: '#8F9885', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}
-                >
-                  Stop
-                </button>
-              </div>
-            </div>
-
-            {/* ALT: full song structure -- so the operator has context of
-                the whole song, not just the current 1-2 line slide. The
-                active section/lines are highlighted to match Live. */}
-            {showFullLyrics ? (
-              <div style={{ background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: 12, marginBottom: 10, maxHeight: 260, overflowY: 'auto' }}>
-                {nowPlayingSong.sections.map((sec, secIdx) => (
-                  <div key={secIdx} style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: secIdx === currentSlide.sectionIndex ? '#A8702E' : '#8F9885', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
-                      {sec.label}
-                    </div>
-                    {sec.lines.map((line, lineIdx) => {
-                      const isActiveLine = secIdx === currentSlide.sectionIndex && currentSlide.lines.includes(line)
-                      return (
-                        <div
-                          key={lineIdx}
-                          style={{
-                            fontSize: 13,
-                            color: isActiveLine ? '#EDEAE0' : '#8F9885',
-                            background: isActiveLine ? 'rgba(168,112,46,0.1)' : 'transparent',
-                            lineHeight: 1.7,
-                            padding: isActiveLine ? '0 4px' : 0,
-                            borderRadius: 3,
-                          }}
-                        >
-                          {line}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: 12, marginBottom: 10 }}>
-                {currentSlide.lines.map((line, i) => (
-                  <div key={i} style={{ fontSize: 13, color: '#EDEAE0', lineHeight: 1.7 }}>{line}</div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-              {nowPlayingSong.sections.map((sec, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => jumpToSection(idx)}
-                  style={{
-                    background: currentSlide.sectionIndex === idx ? 'rgba(168,112,46,0.15)' : '#10160F',
-                    border: currentSlide.sectionIndex === idx ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
-                    borderRadius: 5,
-                    padding: '4px 10px',
-                    fontSize: 10,
-                    color: currentSlide.sectionIndex === idx ? '#A8702E' : '#8F9885',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  {sec.label}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={goPreviousSlide} disabled={slideIndex === 0} style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '6px 12px', fontSize: 11, color: slideIndex === 0 ? '#3A4430' : '#8F9885', cursor: slideIndex === 0 ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
-                ← Previous
-              </button>
-              <button onClick={goNextSlide} disabled={slideIndex === slides.length - 1} style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '6px 12px', fontSize: 11, color: slideIndex === slides.length - 1 ? '#3A4430' : '#8F9885', cursor: slideIndex === slides.length - 1 ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
-                Next →
-              </button>
-              <div style={{ flex: 1 }} />
-              {onPin && (
-                <button
-                  onClick={() =>
-                    onPin({
-                      type: 'song',
-                      label: nowPlayingSong.title,
-                      detail: currentSlide.sectionLabel,
-                      songTitle: nowPlayingSong.title,
-                      songArtist: nowPlayingSong.artist,
-                      songLines: currentSlide.lines,
-                    })
-                  }
-                  title="Pin this slide"
-                  style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '6px 10px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
-                >
-                  Pin
-                </button>
-              )}
-              {onSendPreview && (
-                <button
-                  onClick={() => onSendPreview(slideToContent(nowPlayingSong, currentSlide.lines, slideIndex))}
-                  style={{ background: 'transparent', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#A8702E', cursor: 'pointer', fontFamily: 'inherit' }}
-                >
-                  Send to Preview
-                </button>
-              )}
-              {onSendLive && (
-                <button
-                  onClick={() => onSendLive(slideToContent(nowPlayingSong, currentSlide.lines, slideIndex))}
-                  style={{ background: '#A8702E', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
-                >
-                  Send to Live
-                </button>
-              )}
-              {onSendStage && (
-                <button
-                  onClick={() => onSendStage(slideToContent(nowPlayingSong, currentSlide.lines, slideIndex))}
-                  title="Replaces the Stage timer with this slide while shown"
-                  style={{ background: 'transparent', border: '1px solid #C97A4A', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#C97A4A', cursor: 'pointer', fontFamily: 'inherit' }}
-                >
-                  Send to Stage
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ALT-012: Hymns grouped separately but one tab away */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-          {(['All Songs', 'Hymns'] as LibraryTab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              style={{
-                background: tab === t ? 'rgba(168,112,46,0.14)' : 'transparent',
-                border: tab === t ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
-                borderRadius: 6,
-                padding: '5px 12px',
-                fontSize: 11,
-                fontWeight: tab === t ? 600 : 400,
-                color: tab === t ? '#A8702E' : '#8F9885',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-              }}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-
-        {/* ALT-011: Merge Duplicates review panel */}
-        {showMerge && (
-          <div
-            style={{
-              background: '#1B2318',
-              border: '1px solid rgba(168,112,46,0.3)',
-              borderRadius: 8,
-              padding: 14,
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#EDEAE0', marginBottom: 10 }}>
-              Possible duplicate songs
-            </div>
-            {mergeCandidates.length === 0 ? (
-              <div style={{ fontSize: 12, color: '#8F9885' }}>No duplicates left to review.</div>
-            ) : (
-              mergeCandidates.map((c) => (
-                <MergeCandidateRow
-                  key={c.id}
-                  candidate={c}
-                  onMerge={() => setMergeCandidates((prev) => prev.filter((x) => x.id !== c.id))}
-                  onIgnore={() => setMergeCandidates((prev) => prev.filter((x) => x.id !== c.id))}
-                />
-              ))
-            )}
-          </div>
-        )}
 
         {/* ALT-009: Quick text entry */}
         {showQuickEntry && (
@@ -801,227 +647,372 @@ export default function SongLyricsScreen({
           </div>
         )}
 
-        {/* Search bar */}
-        <div style={{ position: 'relative', marginBottom: 16 }}>
+        {/* ALT-011: Merge Duplicates review panel */}
+        {showMerge && (
           <div
             style={{
-              position: 'absolute',
-              left: 10,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#8F9885',
-              pointerEvents: 'none',
+              background: '#1B2318',
+              border: '1px solid rgba(168,112,46,0.3)',
+              borderRadius: 8,
+              padding: 14,
+              marginBottom: 16,
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-              <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M9 9L13 13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#EDEAE0', marginBottom: 10 }}>
+              Possible duplicate songs
+            </div>
+            {mergeCandidates.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#8F9885' }}>No duplicates left to review.</div>
+            ) : (
+              mergeCandidates.map((c) => (
+                <MergeCandidateRow
+                  key={c.id}
+                  candidate={c}
+                  onMerge={() => setMergeCandidates((prev) => prev.filter((x) => x.id !== c.id))}
+                  onIgnore={() => setMergeCandidates((prev) => prev.filter((x) => x.id !== c.id))}
+                />
+              ))
+            )}
           </div>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter song library…"
-            style={{
-              width: '100%',
-              background: '#1B2318',
-              border: '1px solid #2A331F',
-              borderRadius: 8,
-              padding: '7px 12px 7px 30px',
-              fontSize: 13,
-              color: '#EDEAE0',
-              outline: 'none',
-              fontFamily: 'inherit',
-            }}
-            onFocus={(e) => (e.currentTarget.style.borderColor = 'rgba(168,112,46,0.4)')}
-            onBlur={(e) => (e.currentTarget.style.borderColor = '#2A331F')}
-          />
-        </div>
+        )}
 
-        {/* Song list */}
-        <div
-          style={{
-            background: '#1B2318',
-            border: '1px solid #2A331F',
-            borderRadius: 8,
-            overflow: 'hidden',
-            marginBottom: 16,
-          }}
-        >
-          {filtered.map((song, i) => (
-            <div
-              key={song.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '11px 14px',
-                borderBottom: i < filtered.length - 1 ? '1px solid #2A331F' : 'none',
-                gap: 10,
-                background: selected.has(song.id) ? 'rgba(168,112,46,0.06)' : 'transparent',
-                cursor: bulkSelect ? 'pointer' : 'default',
-              }}
-              onClick={() => bulkSelect && toggleSelect(song.id)}
-            >
-              {bulkSelect && (
-                <div
-                  style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: 4,
-                    border: selected.has(song.id) ? '1.5px solid #A8702E' : '1.5px solid #2A331F',
-                    background: selected.has(song.id) ? '#A8702E' : 'transparent',
-                    flexShrink: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {selected.has(song.id) && (
-                    <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-                      <path d="M1.5 4.5l2.5 2.5 4-4" stroke="#10160F" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </div>
-              )}
-              <div
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 6,
-                  background: '#10160F',
-                  border: '1px solid #2A331F',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
+        {/* ALT: opened song -- replaces the library list entirely with the
+            full lyrics view (EasyWorship/OpenLP style), so the operator
+            sees the whole song structure and can click any section/slide
+            directly. Single click = Active Selection + Preview. Double
+            click = Active Selection + Preview + Live + Stage. */}
+        {openedSong ? (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <button
+                onClick={closeSong}
+                style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '5px 12px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
               >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M5 10.5V4l7-2v7" stroke="#8F9885" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                  <circle cx="3.5" cy="10.5" r="1.5" stroke="#8F9885" strokeWidth="1.2" />
-                  <circle cx="10.5" cy="9" r="1.5" stroke="#8F9885" strokeWidth="1.2" />
-                </svg>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: '#EDEAE0', marginBottom: 2 }}>
-                  {song.title}
-                  {song.isHymn && (
-                    <span style={{ marginLeft: 6, fontSize: 9, color: '#8F9885', border: '1px solid #2A331F', borderRadius: 4, padding: '1px 5px' }}>
-                      HYMN
-                    </span>
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: '#8F9885' }}>{song.artist}</div>
-              </div>
-              {/* ALT-010: lines-per-slide control */}
-              {!bulkSelect && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }} title="Lines per slide">
-                  <input
-                    type="number"
-                    min={1}
-                    value={song.linesPerSlide}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => updateLinesPerSlide(song.id, Number(e.target.value))}
-                    style={{
-                      width: 32,
-                      background: '#10160F',
-                      border: '1px solid #2A331F',
-                      borderRadius: 5,
-                      padding: '3px 4px',
-                      fontSize: 10,
-                      color: '#EDEAE0',
-                      textAlign: 'center',
-                      fontFamily: 'inherit',
-                    }}
-                  />
-                  <span style={{ fontSize: 9, color: '#8F9885' }}>lines/slide</span>
-                </div>
-              )}
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 500,
-                  padding: '2px 8px',
-                  borderRadius: 20,
-                  background: song.source === 'Online' ? 'rgba(168,112,46,0.1)' : '#10160F',
-                  border: song.source === 'Online' ? '1px solid rgba(168,112,46,0.25)' : '1px solid #2A331F',
-                  color: song.source === 'Online' ? '#A8702E' : '#8F9885',
-                  flexShrink: 0,
-                }}
-              >
-                {song.source}
-              </span>
-              {!bulkSelect && (
+                ← Back to Songs
+              </button>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#EDEAE0' }}>{openedSong.title}</div>
+              <div style={{ fontSize: 12, color: '#8F9885' }}>{openedSong.artist}</div>
+              {onPin && (
                 <button
-                  onClick={() => playSong(song)}
-                  style={{
-                    background: nowPlayingId === song.id ? 'rgba(168,112,46,0.15)' : 'transparent',
-                    border: nowPlayingId === song.id ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
-                    borderRadius: 5,
-                    padding: '4px 10px',
-                    fontSize: 10,
-                    color: nowPlayingId === song.id ? '#A8702E' : '#8F9885',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                    flexShrink: 0,
-                  }}
+                  onClick={() => (activeSlide ? pinSlide(openedSong, activeSlide, activeSlideKey!.slideIndex) : pinFromList(openedSong))}
+                  title="Pin this song"
+                  style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
                 >
-                  {nowPlayingId === song.id ? 'Now Playing' : 'Play'}
-                </button>
-              )}
-              {!bulkSelect && (
-                <button
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#8F9885',
-                    cursor: 'pointer',
-                    padding: '4px',
-                    borderRadius: 5,
-                    display: 'flex',
-                    fontSize: 16,
-                    lineHeight: 1,
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.color = '#EDEAE0')}
-                  onMouseLeave={(e) => (e.currentTarget.style.color = '#8F9885')}
-                  title="More options"
-                >
-                  ···
+                  Pin
                 </button>
               )}
             </div>
-          ))}
-        </div>
 
-        {/* Drop zone */}
-        <div
-          style={{
-            border: '1.5px dashed #2A331F',
-            borderRadius: 8,
-            padding: '28px 20px',
-            textAlign: 'center',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 10,
-            cursor: 'pointer',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'rgba(168,112,46,0.35)')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#2A331F')}
-        >
-          <div style={{ color: '#3A4430' }}>
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path d="M14 4v14M8 12l6-8 6 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M4 20v2a2 2 0 002 2h16a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
+            {/* ALT-item-4: lines/slide moved up here, next to section jump buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }} title="Lines per slide">
+                <input
+                  type="number"
+                  min={1}
+                  value={openedSong.linesPerSlide}
+                  onChange={(e) => updateLinesPerSlide(openedSong.id, Number(e.target.value))}
+                  style={{ width: 36, background: '#10160F', border: '1px solid #2A331F', borderRadius: 5, padding: '4px 5px', fontSize: 11, color: '#EDEAE0', textAlign: 'center', fontFamily: 'inherit' }}
+                />
+                <span style={{ fontSize: 10, color: '#8F9885' }}>lines/slide</span>
+              </div>
+              <div style={{ width: 1, height: 18, background: '#2A331F' }} />
+              {openedSong.sections.map((sec, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => jumpToSection(idx)}
+                  onDoubleClick={() => {
+                    const i = firstSlideIndexForSection(openedSlides, idx)
+                    const slide = openedSlides[i]
+                    if (slide) doubleClickSlide(openedSong, slide, i)
+                  }}
+                  style={{
+                    background: activeSlide?.sectionIndex === idx ? 'rgba(168,112,46,0.15)' : '#1B2318',
+                    border: activeSlide?.sectionIndex === idx ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
+                    borderRadius: 5,
+                    padding: '5px 11px',
+                    fontSize: 11,
+                    color: activeSlide?.sectionIndex === idx ? '#A8702E' : '#8F9885',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {sec.label}
+                </button>
+              ))}
+            </div>
+
+            {activeSlide && (
+              <div style={{ fontSize: 11, color: '#A8702E', marginBottom: 8 }}>
+                Active Selection: {activeSlide.sectionLabel}
+              </div>
+            )}
+            <p style={{ fontSize: 10, color: '#3A4430', margin: '0 0 12px' }}>
+              Click a section to stage it (Preview). Double-click to send everywhere (Preview + Live + Stage).
+            </p>
+
+            {/* Full clickable slide list, grouped by section */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {openedSong.sections.map((sec, secIdx) => (
+                <div key={secIdx}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#8F9885', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                    {sec.label}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {openedSlides
+                      .map((s, i) => ({ s, i }))
+                      .filter(({ s }) => s.sectionIndex === secIdx)
+                      .map(({ s, i }) => {
+                        const isActive = activeSlideKey?.songId === openedSong.id && activeSlideKey.slideIndex === i
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => singleClickSlide(openedSong, s, i)}
+                            onDoubleClick={() => doubleClickSlide(openedSong, s, i)}
+                            style={{
+                              background: isActive ? 'rgba(168,112,46,0.12)' : '#1B2318',
+                              border: isActive ? '1px solid rgba(168,112,46,0.5)' : '1px solid #2A331F',
+                              borderRadius: 6,
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {s.lines.map((line, li) => (
+                              <div key={li} style={{ fontSize: 13, color: isActive ? '#EDEAE0' : '#c9cbc6', lineHeight: 1.7 }}>{line}</div>
+                            ))}
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{ fontSize: 13, color: '#8F9885', lineHeight: 1.6 }}>
-            Drag a file here or click to import
-          </div>
-          <div style={{ fontSize: 11, color: '#3A4430' }}>
-            Supports PDF and other document formats
-          </div>
-        </div>
+        ) : (
+          <>
+            {/* ALT-012: Hymns grouped separately but one tab away */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+              {(['All Songs', 'Hymns'] as LibraryTab[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  style={{
+                    background: tab === t ? 'rgba(168,112,46,0.14)' : 'transparent',
+                    border: tab === t ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
+                    borderRadius: 6,
+                    padding: '5px 12px',
+                    fontSize: 11,
+                    fontWeight: tab === t ? 600 : 400,
+                    color: tab === t ? '#A8702E' : '#8F9885',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            {/* Search bar */}
+            <div style={{ position: 'relative', marginBottom: 16 }}>
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 10,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#8F9885',
+                  pointerEvents: 'none',
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                  <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.3" />
+                  <path d="M9 9L13 13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+              </div>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter song library…"
+                style={{
+                  width: '100%',
+                  background: '#1B2318',
+                  border: '1px solid #2A331F',
+                  borderRadius: 8,
+                  padding: '7px 12px 7px 30px',
+                  fontSize: 13,
+                  color: '#EDEAE0',
+                  outline: 'none',
+                  fontFamily: 'inherit',
+                }}
+                onFocus={(e) => (e.currentTarget.style.borderColor = 'rgba(168,112,46,0.4)')}
+                onBlur={(e) => (e.currentTarget.style.borderColor = '#2A331F')}
+              />
+            </div>
+
+            {/* Song list */}
+            <div
+              style={{
+                background: '#1B2318',
+                border: '1px solid #2A331F',
+                borderRadius: 8,
+                overflow: 'hidden',
+                marginBottom: 16,
+              }}
+            >
+              {filtered.map((song, i) => (
+                <div
+                  key={song.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '11px 14px',
+                    borderBottom: i < filtered.length - 1 ? '1px solid #2A331F' : 'none',
+                    gap: 10,
+                    background: selected.has(song.id) ? 'rgba(168,112,46,0.06)' : 'transparent',
+                    cursor: bulkSelect ? 'pointer' : 'default',
+                  }}
+                  onClick={() => bulkSelect && toggleSelect(song.id)}
+                  onDoubleClick={() => !bulkSelect && openSong(song)}
+                >
+                  {bulkSelect && (
+                    <div
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: 4,
+                        border: selected.has(song.id) ? '1.5px solid #A8702E' : '1.5px solid #2A331F',
+                        background: selected.has(song.id) ? '#A8702E' : 'transparent',
+                        flexShrink: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {selected.has(song.id) && (
+                        <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                          <path d="M1.5 4.5l2.5 2.5 4-4" stroke="#10160F" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 6,
+                      background: '#10160F',
+                      border: '1px solid #2A331F',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M5 10.5V4l7-2v7" stroke="#8F9885" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                      <circle cx="3.5" cy="10.5" r="1.5" stroke="#8F9885" strokeWidth="1.2" />
+                      <circle cx="10.5" cy="9" r="1.5" stroke="#8F9885" strokeWidth="1.2" />
+                    </svg>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#EDEAE0', marginBottom: 2 }}>
+                      {song.title}
+                      {song.isHymn && (
+                        <span style={{ marginLeft: 6, fontSize: 9, color: '#8F9885', border: '1px solid #2A331F', borderRadius: 4, padding: '1px 5px' }}>
+                          HYMN
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#8F9885' }}>{song.artist}</div>
+                  </div>
+                  {/* ALT-item-1: Imported/Online badge removed -- not useful */}
+                  {/* ALT-item-4: per-row lines/slide removed -- moved into the opened view */}
+                  {!bulkSelect && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        pinFromList(song)
+                      }}
+                      title="Pin this song"
+                      style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 5, padding: '4px 8px', fontSize: 10, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}
+                    >
+                      Pin
+                    </button>
+                  )}
+                  {/* ALT-item-2: "Play" renamed to "Open" */}
+                  {!bulkSelect && (
+                    <button
+                      onClick={() => openSong(song)}
+                      style={{
+                        background: openedSongId === song.id ? 'rgba(168,112,46,0.15)' : 'transparent',
+                        border: openedSongId === song.id ? '1px solid rgba(168,112,46,0.4)' : '1px solid #2A331F',
+                        borderRadius: 5,
+                        padding: '4px 10px',
+                        fontSize: 10,
+                        color: openedSongId === song.id ? '#A8702E' : '#8F9885',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        flexShrink: 0,
+                      }}
+                    >
+                      Open
+                    </button>
+                  )}
+                  {!bulkSelect && (
+                    <button
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#8F9885',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        borderRadius: 5,
+                        display: 'flex',
+                        fontSize: 16,
+                        lineHeight: 1,
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = '#EDEAE0')}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = '#8F9885')}
+                      title="More options"
+                    >
+                      ···
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Drop zone */}
+            <div
+              style={{
+                border: '1.5px dashed #2A331F',
+                borderRadius: 8,
+                padding: '28px 20px',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 10,
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'rgba(168,112,46,0.35)')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#2A331F')}
+            >
+              <div style={{ color: '#3A4430' }}>
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                  <path d="M14 4v14M8 12l6-8 6 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M4 20v2a2 2 0 002 2h16a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </div>
+              <div style={{ fontSize: 13, color: '#8F9885', lineHeight: 1.6 }}>
+                Drag a file here or click to import
+              </div>
+              <div style={{ fontSize: 11, color: '#3A4430' }}>
+                Supports PDF and other document formats
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
