@@ -1,6 +1,24 @@
 import { useState, useRef } from 'react'
 import { LANGUAGES, useLanguage, useT } from '../i18n'
 import { importZefaniaXML, importSimpleJSON, type ImportResult } from '../bibleImport'
+import { listLoadedTranslations } from '../bibleModel'
+
+// ALT: EasyVerse-style Translation Library -- curated list of common
+// translation names to browse. KJV is genuinely bundled (public domain);
+// everything else shows "Install" and opens the real import flow, since
+// this app can't legally bundle copyrighted translations the way EasyVerse
+// can (they hold actual licensing agreements with those publishers).
+const TRANSLATION_CATALOG = [
+  { code: 'KJV', name: 'King James Version' },
+  { code: 'NKJV', name: 'New King James Version' },
+  { code: 'NIV', name: 'New International Version' },
+  { code: 'ESV', name: 'English Standard Version' },
+  { code: 'NASB', name: 'New American Standard Bible' },
+  { code: 'AMP', name: 'Amplified Bible' },
+  { code: 'NLT', name: 'New Living Translation' },
+  { code: 'MSG', name: 'The Message' },
+  { code: 'ERV', name: 'Easy-to-Read Version' },
+]
 
 // ALT-041: output routing types/defaults.
 type OutputRole = 'live' | 'preview' | 'stage'
@@ -51,7 +69,6 @@ export default function SettingsScreen({ onBibleImported }: { onBibleImported?: 
   const bibleFileInputRef = useRef<HTMLInputElement>(null)
   const [ndiEnabled, setNdiEnabled] = useState(false)
   const [streamingTool, setStreamingTool] = useState('OBS Studio')
-  const [translations, setTranslations] = useState(TRANSLATIONS_LIST)
   // ALT-015 (extended): real i18n -- language state is global (Context),
   // and every string on this screen is now translated live.
   const { languageCode, setLanguageCode } = useLanguage()
@@ -98,20 +115,16 @@ export default function SettingsScreen({ onBibleImported }: { onBibleImported?: 
     }
   }
 
-  function removeTranslation(code: string) {
-    setTranslations((prev) =>
-      prev.map((t) => (t.code === code ? { ...t, installed: false } : t)),
-    )
-  }
-
-  function addTranslation(code: string) {
-    setTranslations((prev) =>
-      prev.map((t) => (t.code === code ? { ...t, installed: true } : t)),
-    )
-  }
-
-  const installed = translations.filter((t) => t.installed)
-  const available = translations.filter((t) => !t.installed)
+  // ALT: Translation Library derivation -- combines the curated catalog
+  // with whatever's actually loaded in bibleModel (built-in KJV + any
+  // imports), so "Installed" reflects real usable data, not a mock flag.
+  const loadedCodes = listLoadedTranslations()
+  const libraryEntries = [
+    ...TRANSLATION_CATALOG.map((t) => ({ ...t, installed: loadedCodes.includes(t.code) })),
+    ...loadedCodes
+      .filter((code) => !TRANSLATION_CATALOG.some((t) => t.code === code))
+      .map((code) => ({ code, name: code, installed: true })),
+  ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -321,112 +334,54 @@ export default function SettingsScreen({ onBibleImported }: { onBibleImported?: 
             </div>
           </SettingsCard>
 
-          {/* Bible Translations */}
-          <SettingsCard title="Bible Translations">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-              <div
-                style={{
-                  background: '#10160F',
-                  border: '1px solid #2A331F',
-                  borderRadius: 7,
-                  overflow: 'hidden',
-                  marginBottom: 10,
-                }}
-              >
-                {installed.map((t, i) => (
-                  <div
-                    key={t.code}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '9px 12px',
-                      borderBottom: i < installed.length - 1 ? '1px solid #2A331F' : 'none',
-                      gap: 10,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: '#A8702E',
-                        minWidth: 44,
-                      }}
-                    >
-                      {t.code}
-                    </span>
-                    <span style={{ fontSize: 12, color: '#8F9885', flex: 1 }}>{t.name}</span>
-                    <button
-                      onClick={() => removeTranslation(t.code)}
-                      style={{
-                        background: 'transparent',
-                        border: '1px solid #2A331F',
-                        borderRadius: 5,
-                        padding: '2px 8px',
-                        fontSize: 10,
-                        color: '#8F9885',
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(255,80,80,0.4)'
-                        e.currentTarget.style.color = '#ff6060'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = '#2A331F'
-                        e.currentTarget.style.color = '#8F9885'
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-              {available.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {available.map((t) => (
-                    <button
-                      key={t.code}
-                      onClick={() => addTranslation(t.code)}
-                      style={{
-                        background: 'transparent',
-                        border: '1px dashed #2A331F',
-                        borderRadius: 6,
-                        padding: '4px 10px',
-                        fontSize: 11,
-                        color: '#8F9885',
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(168,112,46,0.4)'
-                        e.currentTarget.style.color = '#A8702E'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = '#2A331F'
-                        e.currentTarget.style.color = '#8F9885'
-                      }}
-                    >
-                      + {t.code}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </SettingsCard>
-
-          {/* ALT: Bible import -- lets the church load their own licensed
-              translation files, matching FreeShow's own approach of never
-              bundling copyrighted translations. Accepts Zefania-style XML
-              or a simple JSON format. */}
-          <SettingsCard title="Import Bible Translation">
+          {/* ALT: EasyVerse-style Translation Library -- browse translations,
+              click Install. KJV is genuinely bundled (public domain, no
+              licensing needed). Everything else opens the real import flow
+              -- this app can't legally bundle copyrighted translations the
+              way EasyVerse can, since that requires actual licensing
+              agreements with the publishers, not a technical trick. */}
+          <SettingsCard title="Translation Library">
             <p style={{ fontSize: 11, color: '#8F9885', lineHeight: 1.5, margin: '0 0 12px' }}>
-              Load a translation file you have the rights to use -- Zefania-format XML, or a simple JSON file
-              (<code style={{ color: '#A8702E' }}>{'{ "translation": "NIV", "books": { "John": { "1": [...] } } }'}</code>).
-              This app doesn't bundle any copyrighted translations; only the built-in KJV (public domain) ships
-              by default.
+              Browse translations and install what you need. Only KJV ships built-in (public domain) -- everything
+              else requires your own properly licensed file (Zefania XML, or a simple JSON format), since this app
+              doesn't hold publisher licensing the way commercial software does.
+            </p>
+            <div style={{ background: '#10160F', border: '1px solid #2A331F', borderRadius: 7, overflow: 'hidden', marginBottom: 14 }}>
+              {libraryEntries.map((entry, i) => (
+                <div
+                  key={entry.code}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '9px 12px',
+                    borderBottom: i < libraryEntries.length - 1 ? '1px solid #2A331F' : 'none',
+                    gap: 10,
+                  }}
+                >
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#A8702E', minWidth: 50 }}>{entry.code}</span>
+                  <span style={{ fontSize: 12, color: '#8F9885', flex: 1 }}>{entry.name}</span>
+                  {entry.installed ? (
+                    <span style={{ fontSize: 10, color: '#6FC98A', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6FC98A' }} />
+                      {entry.code === 'KJV' ? 'Built-in · Public Domain' : 'Installed'}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setImportTranslationName(entry.code)
+                        bibleFileInputRef.current?.click()
+                      }}
+                      style={{ background: 'transparent', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 5, padding: '3px 10px', fontSize: 10, color: '#A8702E', cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      Install
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <p style={{ fontSize: 10, color: '#3A4430', margin: '0 0 8px' }}>
+              Or import a translation not listed above:
             </p>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
               <input
