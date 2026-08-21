@@ -126,6 +126,10 @@ let MULTI_TRANSLATION_VERSES: BibleVerse[] = [
   { book: 'Proverbs', chapter: 3, verse: 6, translation: 'KJV', text: 'In all thy ways acknowledge him, and he shall direct thy paths.' },
   { book: 'Proverbs', chapter: 3, verse: 5, translation: 'NIV', text: 'Trust in the LORD with all your heart and lean not on your own understanding.' },
   { book: 'Proverbs', chapter: 3, verse: 6, translation: 'NIV', text: 'in all your ways submit to him, and he will make your paths straight.' },
+  // ALT-fix: John 3:16 only had KJV data (from the full chapter), so the
+  // compare-translation dropdown had nothing else to offer. One short
+  // alternate translation, matching the scale already used above.
+  { book: 'John', chapter: 3, verse: 16, translation: 'NIV', text: 'For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life.' },
 ]
 
 // ALT: Bible import -- lets the church load their own licensed translation

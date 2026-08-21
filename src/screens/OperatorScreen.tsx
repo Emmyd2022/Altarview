@@ -167,6 +167,12 @@ export default function OperatorScreen({
   // search like "John 3:16-20" or clicking a result), and multi-select
   // for pinning several verses as one item (FreeShow/ProPresenter-style).
   const [openedRange, setOpenedRange] = useState<{ book: string; chapter: number; start: number; end: number } | null>(null)
+  // ALT-fix: separated from openedRange -- openedRange is the fixed
+  // "group" (e.g. John 3:16-20) that stays intact for pinning/context,
+  // while activeVerseNum is the single verse currently navigated to. This
+  // lets Previous/Next step through the group AND beyond it into
+  // surrounding verses, without collapsing or losing the original group.
+  const [activeVerseNum, setActiveVerseNum] = useState<number | null>(null)
   const [selectedVerseKeys, setSelectedVerseKeys] = useState<Set<string>>(new Set())
 
   function verseKey(book: string, chapter: number, verse: number) {
@@ -175,6 +181,7 @@ export default function OperatorScreen({
 
   function openReference(ref: { book: string; chapter: number; startVerse: number; endVerse: number }) {
     setOpenedRange({ book: ref.book, chapter: ref.chapter, start: ref.startVerse, end: ref.endVerse })
+    setActiveVerseNum(ref.startVerse)
   }
 
   const openedVerses = openedRange
@@ -194,23 +201,24 @@ export default function OperatorScreen({
     return { type: 'verse', ref: openedLabel, translation, text: openedCombinedText }
   }
 
-  // Clicking a verse within the chapter context sets it as the new single-
-  // verse target (or extends the range with Shift, matching common list-
-  // selection convention) and stages it to Preview.
+  // ALT-fix: single click sets the ACTIVE verse (for navigation/sending)
+  // without touching the pinned group's boundary -- this is what lets the
+  // operator "jump out" to a surrounding verse while the original group
+  // (e.g. John 3:16-20) stays intact for Pin. Shift+click instead resizes
+  // the group itself, for building/adjusting a range.
   function selectVerseInChapter(verseNum: number, extend: boolean) {
     if (!openedRange) return
     if (extend) {
       setOpenedRange({ ...openedRange, start: Math.min(openedRange.start, verseNum), end: Math.max(openedRange.end, verseNum) })
-    } else {
-      setOpenedRange({ ...openedRange, start: verseNum, end: verseNum })
     }
-    const content = openedRangeToContentFor(openedRange.book, openedRange.chapter, extend ? Math.min(openedRange.start, verseNum) : verseNum, extend ? Math.max(openedRange.end, verseNum) : verseNum)
+    setActiveVerseNum(verseNum)
+    const content = openedRangeToContentFor(openedRange.book, openedRange.chapter, verseNum, verseNum)
     if (content) onSendPreviewContent?.(content)
   }
 
   function sendVerseInChapter(verseNum: number) {
     if (!openedRange) return
-    setOpenedRange({ ...openedRange, start: verseNum, end: verseNum })
+    setActiveVerseNum(verseNum)
     const content = openedRangeToContentFor(openedRange.book, openedRange.chapter, verseNum, verseNum)
     if (content) {
       onSendPreviewContent?.(content)
@@ -228,11 +236,21 @@ export default function OperatorScreen({
   // ALT-fix: Previous/Next Verse now sends the new verse to all screens
   // immediately, matching how a live navigation should work -- the
   // congregation's screen updates the moment the operator steps forward.
+  // ALT-fix: Previous/Next now move the ACTIVE verse pointer independently
+  // of the pinned group boundary (openedRange), crossing chapters as
+  // needed -- this is what lets the operator step beyond the original
+  // group (e.g. past John 3:20) into the surrounding verses, and step
+  // back into the group again, without ever losing/resizing the group
+  // itself. Sends to all screens on every step, same as before.
   function goToNextVerse() {
-    if (!openedRange) return
-    const next = nextVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: openedRange.end })
+    if (!openedRange || activeVerseNum === null) return
+    const next = nextVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: activeVerseNum })
     if (!next) return
-    setOpenedRange({ book: next.book, chapter: next.chapter, start: next.verse, end: next.verse })
+    setActiveVerseNum(next.verse)
+    if (next.book.toLowerCase() !== openedRange.book.toLowerCase() || next.chapter !== openedRange.chapter) {
+      // Crossed into a new chapter -- the "chapter context" view follows.
+      setOpenedRange({ book: next.book, chapter: next.chapter, start: next.verse, end: next.verse })
+    }
     const content = openedRangeToContentFor(next.book, next.chapter, next.verse, next.verse)
     if (content) {
       onSendPreviewContent?.(content)
@@ -242,10 +260,13 @@ export default function OperatorScreen({
   }
 
   function goToPreviousVerse() {
-    if (!openedRange) return
-    const prev = previousVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: openedRange.start })
+    if (!openedRange || activeVerseNum === null) return
+    const prev = previousVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: activeVerseNum })
     if (!prev) return
-    setOpenedRange({ book: prev.book, chapter: prev.chapter, start: prev.verse, end: prev.verse })
+    setActiveVerseNum(prev.verse)
+    if (prev.book.toLowerCase() !== openedRange.book.toLowerCase() || prev.chapter !== openedRange.chapter) {
+      setOpenedRange({ book: prev.book, chapter: prev.chapter, start: prev.verse, end: prev.verse })
+    }
     const content = openedRangeToContentFor(prev.book, prev.chapter, prev.verse, prev.verse)
     if (content) {
       onSendPreviewContent?.(content)
@@ -597,11 +618,13 @@ export default function OperatorScreen({
             ) : (
               <div style={{ background: '#1B2318', border: '1px solid #2A331F', borderRadius: 8, padding: 14, marginBottom: 14, maxHeight: 360, overflowY: 'auto' }}>
                 <p style={{ fontSize: 10, color: '#3A4430', margin: '0 0 10px' }}>
-                  Whole chapter shown for context (FreeShow-style) -- click any verse to jump there, Shift+click to
-                  extend the range, double-click to send everywhere.
+                  Whole chapter shown for context (FreeShow-style). <span style={{ color: '#A8702E' }}>Amber background</span> = the
+                  pinned group; <span style={{ color: '#6FC98A' }}>green border</span> = the active verse. Click any verse to
+                  jump there (even outside the group). Shift+click to resize the group. Double-click to send everywhere.
                 </p>
                 {chapterVerses.map((v) => {
-                  const isTarget = openedRange && v.verse >= openedRange.start && v.verse <= openedRange.end
+                  const isInGroup = openedRange && v.verse >= openedRange.start && v.verse <= openedRange.end
+                  const isActive = activeVerseNum === v.verse
                   return (
                     <div
                       key={v.verse}
@@ -609,8 +632,9 @@ export default function OperatorScreen({
                       onDoubleClick={() => sendVerseInChapter(v.verse)}
                       style={{
                         fontSize: 13,
-                        color: isTarget ? '#EDEAE0' : '#8F9885',
-                        background: isTarget ? 'rgba(168,112,46,0.1)' : 'transparent',
+                        color: isInGroup || isActive ? '#EDEAE0' : '#8F9885',
+                        background: isInGroup ? 'rgba(168,112,46,0.1)' : 'transparent',
+                        border: isActive ? '1px solid rgba(111,201,138,0.6)' : '1px solid transparent',
                         lineHeight: 1.8,
                         marginBottom: 2,
                         padding: '2px 6px',
@@ -618,7 +642,7 @@ export default function OperatorScreen({
                         cursor: 'pointer',
                       }}
                     >
-                      <span style={{ color: isTarget ? '#A8702E' : '#3A4430', fontSize: 10, fontWeight: 600, marginRight: 6 }}>{v.verse}</span>
+                      <span style={{ color: isInGroup || isActive ? '#A8702E' : '#3A4430', fontSize: 10, fontWeight: 600, marginRight: 6 }}>{v.verse}</span>
                       {v.text}
                     </div>
                   )
