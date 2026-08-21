@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { LANGUAGES, useLanguage, useT } from '../i18n'
+import { importZefaniaXML, importSimpleJSON, type ImportResult } from '../bibleImport'
 
 // ALT-041: output routing types/defaults.
 type OutputRole = 'live' | 'preview' | 'stage'
@@ -43,8 +44,11 @@ const TRANSLATIONS_LIST = [
   { code: 'Pidgin', name: 'Pidgin English Bible', installed: true },
 ]
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ onBibleImported }: { onBibleImported?: () => void } = {}) {
   const [obsConnected] = useState(true)
+  const [importTranslationName, setImportTranslationName] = useState('')
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const bibleFileInputRef = useRef<HTMLInputElement>(null)
   const [ndiEnabled, setNdiEnabled] = useState(false)
   const [streamingTool, setStreamingTool] = useState('OBS Studio')
   const [translations, setTranslations] = useState(TRANSLATIONS_LIST)
@@ -411,6 +415,75 @@ export default function SettingsScreen() {
                 </div>
               )}
             </div>
+          </SettingsCard>
+
+          {/* ALT: Bible import -- lets the church load their own licensed
+              translation files, matching FreeShow's own approach of never
+              bundling copyrighted translations. Accepts Zefania-style XML
+              or a simple JSON format. */}
+          <SettingsCard title="Import Bible Translation">
+            <p style={{ fontSize: 11, color: '#8F9885', lineHeight: 1.5, margin: '0 0 12px' }}>
+              Load a translation file you have the rights to use -- Zefania-format XML, or a simple JSON file
+              (<code style={{ color: '#A8702E' }}>{'{ "translation": "NIV", "books": { "John": { "1": [...] } } }'}</code>).
+              This app doesn't bundle any copyrighted translations; only the built-in KJV (public domain) ships
+              by default.
+            </p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+              <input
+                value={importTranslationName}
+                onChange={(e) => setImportTranslationName(e.target.value)}
+                placeholder="Translation name (for XML files, e.g. NIV)"
+                style={{ flex: 1, background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '7px 10px', fontSize: 12, color: '#EDEAE0', outline: 'none', fontFamily: 'inherit' }}
+              />
+              <button
+                onClick={() => bibleFileInputRef.current?.click()}
+                style={{ background: '#A8702E', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 11, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+              >
+                Choose File
+              </button>
+              <input
+                ref={bibleFileInputRef}
+                type="file"
+                accept=".xml,.json"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  const text = await file.text()
+                  let result: ImportResult
+                  if (file.name.toLowerCase().endsWith('.json')) {
+                    result = importSimpleJSON(text)
+                  } else {
+                    if (!importTranslationName.trim()) {
+                      setImportResult({ translation: '', chaptersImported: 0, versesImported: 0, errors: ['Enter a translation name before importing an XML file.'] })
+                      e.target.value = ''
+                      return
+                    }
+                    result = importZefaniaXML(text, importTranslationName.trim())
+                  }
+                  setImportResult(result)
+                  if (result.chaptersImported > 0 || result.versesImported > 0) onBibleImported?.()
+                  e.target.value = ''
+                }}
+              />
+            </div>
+            {importResult && (
+              <div style={{ background: '#10160F', border: '1px solid #2A331F', borderRadius: 6, padding: '10px 12px' }}>
+                {importResult.errors.length > 0 && (
+                  <div style={{ fontSize: 11, color: '#ff6060', marginBottom: importResult.chaptersImported || importResult.versesImported ? 6 : 0 }}>
+                    {importResult.errors.map((err, i) => (
+                      <div key={i}>{err}</div>
+                    ))}
+                  </div>
+                )}
+                {(importResult.chaptersImported > 0 || importResult.versesImported > 0) && (
+                  <div style={{ fontSize: 11, color: '#6FC98A' }}>
+                    Imported {importResult.translation}: {importResult.chaptersImported} chapter{importResult.chaptersImported === 1 ? '' : 's'},{' '}
+                    {importResult.versesImported} verse{importResult.versesImported === 1 ? '' : 's'}.
+                  </div>
+                )}
+              </div>
+            )}
           </SettingsCard>
 
           {/* AI Speech Engine */}

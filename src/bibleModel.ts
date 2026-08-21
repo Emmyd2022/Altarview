@@ -79,18 +79,39 @@ const JOHN_4_KJV: string[] = [
 interface ChapterData {
   book: string
   chapter: number
+  translation: string
   verses: string[] // index 0 = verse 1
 }
 
-const LOADED_CHAPTERS: ChapterData[] = [
-  { book: 'John', chapter: 1, verses: JOHN_1_KJV },
-  { book: 'John', chapter: 3, verses: JOHN_3_KJV },
-  { book: 'John', chapter: 4, verses: JOHN_4_KJV },
-]
+// ALT: keyed by book|chapter|translation, and mutable -- addImportedChapter
+// lets the church load their own licensed translation files (Zefania/OSIS/
+// XML or a simple JSON format), matching FreeShow's own approach of never
+// bundling copyrighted translations, only what's public domain (KJV here).
+const CHAPTER_MAP = new Map<string, ChapterData>()
+let CHAPTER_ORDER: VerseRef[] = []
+
+function chapterKey(book: string, chapter: number, translation: string): string {
+  return `${book.toLowerCase()}|${chapter}|${translation}`
+}
+
+function registerChapter(book: string, chapter: number, translation: string, verses: string[]) {
+  const data: ChapterData = { book, chapter, translation, verses }
+  CHAPTER_MAP.set(chapterKey(book, chapter, translation), data)
+  // Keep CHAPTER_ORDER (used for crossing chapter boundaries) unique by
+  // book+chapter regardless of translation, in book/chapter loading order.
+  if (!CHAPTER_ORDER.some((c) => c.book.toLowerCase() === book.toLowerCase() && c.chapter === chapter)) {
+    CHAPTER_ORDER.push({ book, chapter, verse: 1 })
+  }
+}
+
+registerChapter('John', 1, 'KJV', JOHN_1_KJV)
+registerChapter('John', 3, 'KJV', JOHN_3_KJV)
+registerChapter('John', 4, 'KJV', JOHN_4_KJV)
 
 // Well-known standalone verses in multiple translations, for translation-
-// switching tests outside the fully-loaded John chapters.
-const MULTI_TRANSLATION_VERSES: BibleVerse[] = [
+// switching tests outside the fully-loaded John chapters. Mutable so
+// imported single verses can be added the same way.
+let MULTI_TRANSLATION_VERSES: BibleVerse[] = [
   { book: 'Psalm', chapter: 23, verse: 1, translation: 'KJV', text: 'The LORD is my shepherd; I shall not want.' },
   { book: 'Psalm', chapter: 23, verse: 1, translation: 'NIV', text: 'The LORD is my shepherd, I lack nothing.' },
   { book: 'Psalm', chapter: 23, verse: 1, translation: 'ESV', text: 'The LORD is my shepherd; I shall not want.' },
@@ -107,20 +128,30 @@ const MULTI_TRANSLATION_VERSES: BibleVerse[] = [
   { book: 'Proverbs', chapter: 3, verse: 6, translation: 'NIV', text: 'in all your ways submit to him, and he will make your paths straight.' },
 ]
 
+// ALT: Bible import -- lets the church load their own licensed translation
+// files at runtime, instead of translations being bundled/hard-coded.
+export function addImportedChapter(book: string, chapter: number, translation: string, verses: string[]) {
+  registerChapter(book, chapter, translation, verses)
+}
+
+export function addImportedVerses(verses: BibleVerse[]) {
+  MULTI_TRANSLATION_VERSES = [...MULTI_TRANSLATION_VERSES, ...verses]
+}
+
+export function listLoadedTranslations(): string[] {
+  const set = new Set<string>()
+  for (const c of CHAPTER_MAP.values()) set.add(c.translation)
+  for (const v of MULTI_TRANSLATION_VERSES) set.add(v.translation)
+  return Array.from(set).sort()
+}
+
 export function bookChapterKey(book: string, chapter: number): string {
   return `${book.toLowerCase()}|${chapter}`
 }
 
-const CHAPTER_MAP = new Map<string, ChapterData>()
-for (const c of LOADED_CHAPTERS) CHAPTER_MAP.set(bookChapterKey(c.book, c.chapter), c)
-
-// Order the loaded chapters follow, for crossing chapter boundaries.
-const CHAPTER_ORDER: VerseRef[] = LOADED_CHAPTERS.map((c) => ({ book: c.book, chapter: c.chapter, verse: 1 }))
-
 export function getVerseText(book: string, chapter: number, verse: number, translation: string): string | null {
-  // KJV comes from the fully-loaded chapters when available.
-  const chapterData = CHAPTER_MAP.get(bookChapterKey(book, chapter))
-  if (chapterData && translation === 'KJV' && chapterData.verses[verse - 1] !== undefined) {
+  const chapterData = CHAPTER_MAP.get(chapterKey(book, chapter, translation))
+  if (chapterData && chapterData.verses[verse - 1] !== undefined) {
     return chapterData.verses[verse - 1]
   }
   const match = MULTI_TRANSLATION_VERSES.find(
@@ -129,18 +160,27 @@ export function getVerseText(book: string, chapter: number, verse: number, trans
   return match ? match.text : null
 }
 
-export function chapterVerseCount(book: string, chapter: number): number {
-  return CHAPTER_MAP.get(bookChapterKey(book, chapter))?.verses.length ?? 0
+export function chapterVerseCount(book: string, chapter: number, translation = 'KJV'): number {
+  const forTranslation = CHAPTER_MAP.get(chapterKey(book, chapter, translation))
+  if (forTranslation) return forTranslation.verses.length
+  // Fall back to any translation's chapter length, so context/navigation
+  // still works when the requested translation doesn't have this chapter.
+  for (const c of CHAPTER_MAP.values()) {
+    if (c.book.toLowerCase() === book.toLowerCase() && c.chapter === chapter) return c.verses.length
+  }
+  return 0
 }
 
 export function isChapterLoaded(book: string, chapter: number): boolean {
-  return CHAPTER_MAP.has(bookChapterKey(book, chapter))
+  for (const c of CHAPTER_MAP.values()) {
+    if (c.book.toLowerCase() === book.toLowerCase() && c.chapter === chapter) return true
+  }
+  return false
 }
 
 export function availableTranslationsForVerse(book: string, chapter: number, verse: number): string[] {
   const list: string[] = []
-  if (getVerseText(book, chapter, verse, 'KJV')) list.push('KJV')
-  for (const t of ['NIV', 'ESV', 'NASB']) {
+  for (const t of listLoadedTranslations()) {
     if (getVerseText(book, chapter, verse, t) && !list.includes(t)) list.push(t)
   }
   return list

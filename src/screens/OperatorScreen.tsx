@@ -2,6 +2,7 @@ import { useState, useEffect, type ReactNode } from 'react'
 import type { DisplayContent } from './OutputStage'
 import { useT } from '../i18n'
 import { availableTranslationsFor } from '../verseData'
+import { availableTranslationsForVerse } from '../bibleModel'
 import SongLyricsScreen from './SongLyricsScreen'
 import SermonSlidesScreen from './SermonSlidesScreen'
 import TimerScreen from './TimerScreen'
@@ -123,9 +124,11 @@ export default function OperatorScreen({
   onSendLiveContent,
   onSendStageContent,
   sessions,
+  bibleDataVersion,
 }: {
   page: OperatorPage
   onChangePage: (page: OperatorPage) => void
+  bibleDataVersion?: number
   previewContent: DisplayContent | null
   liveContent: DisplayContent | null
   onSendPreview: (v: Verse) => void
@@ -222,16 +225,33 @@ export default function OperatorScreen({
     return { type: 'verse', ref: rangeLabel(book, chapter, start, end), translation, text: verses.map((v) => v.text).join(' ') }
   }
 
+  // ALT-fix: Previous/Next Verse now sends the new verse to all screens
+  // immediately, matching how a live navigation should work -- the
+  // congregation's screen updates the moment the operator steps forward.
   function goToNextVerse() {
     if (!openedRange) return
     const next = nextVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: openedRange.end })
-    if (next) setOpenedRange({ book: next.book, chapter: next.chapter, start: next.verse, end: next.verse })
+    if (!next) return
+    setOpenedRange({ book: next.book, chapter: next.chapter, start: next.verse, end: next.verse })
+    const content = openedRangeToContentFor(next.book, next.chapter, next.verse, next.verse)
+    if (content) {
+      onSendPreviewContent?.(content)
+      onSendLiveContent?.(content)
+      onSendStageContent?.(content)
+    }
   }
 
   function goToPreviousVerse() {
     if (!openedRange) return
     const prev = previousVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: openedRange.start })
-    if (prev) setOpenedRange({ book: prev.book, chapter: prev.chapter, start: prev.verse, end: prev.verse })
+    if (!prev) return
+    setOpenedRange({ book: prev.book, chapter: prev.chapter, start: prev.verse, end: prev.verse })
+    const content = openedRangeToContentFor(prev.book, prev.chapter, prev.verse, prev.verse)
+    if (content) {
+      onSendPreviewContent?.(content)
+      onSendLiveContent?.(content)
+      onSendStageContent?.(content)
+    }
   }
 
   useEffect(() => {
@@ -615,39 +635,14 @@ export default function OperatorScreen({
               </button>
             </div>
 
+            {/* ALT-fix: explicit Send buttons removed -- Previous/Next
+                Verse now sends to all screens automatically, and clicking/
+                double-clicking a verse in the chapter view above already
+                covers direct sends, per instruction. */}
             <p style={{ fontSize: 10, color: '#3A4430', marginBottom: 14 }}>
-              Click to stage (Preview). Double-click anywhere in the passage above to send everywhere (Preview + Live + Stage).
+              Click a verse above to stage it (Preview). Double-click to send everywhere. Previous/Next Verse also
+              sends to all screens as you navigate.
             </p>
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                onClick={() => {
-                  const content = openedRangeToContent()
-                  if (content) onSendPreviewContent?.(content)
-                }}
-                style={{ background: 'transparent', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#A8702E', cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                Send to Preview
-              </button>
-              <button
-                onClick={() => {
-                  const content = openedRangeToContent()
-                  if (content) onSendLiveContent?.(content)
-                }}
-                style={{ background: '#A8702E', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                Send to Live
-              </button>
-              <button
-                onClick={() => {
-                  const content = openedRangeToContent()
-                  if (content) onSendStageContent?.(content)
-                }}
-                style={{ background: 'transparent', border: '1px solid #C97A4A', borderRadius: 6, padding: '6px 14px', fontSize: 11, fontWeight: 600, color: '#C97A4A', cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                Send to Stage
-              </button>
-            </div>
           </div>
         ) : (
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 20px 20px 20px' }}>
@@ -979,7 +974,30 @@ function OutputBox({
 }) {
   const [showTranslations, setShowTranslations] = useState(false)
   const isVerse = content?.type === 'verse'
-  const variants = isVerse ? availableTranslationsFor(content.ref) : []
+  // ALT-fix: quick translation switch for content already on Live -- the
+  // old verseData.ts lookup only knew about a few hardcoded single verses,
+  // so it silently showed nothing for scripture sent via the newer
+  // bibleModel system (including any range like "John 3:16-20"). This
+  // parses content.ref and checks bibleModel for translations available
+  // across the whole range, so switching still works for ranges too.
+  const parsedRef = isVerse ? parseReference(content.ref) : null
+  const bibleVariants = parsedRef
+    ? availableTranslationsForVerse(parsedRef.book, parsedRef.chapter, parsedRef.startVerse).filter((t) =>
+        getVerseRange(parsedRef.book, parsedRef.chapter, parsedRef.startVerse, parsedRef.endVerse, t).length ===
+        parsedRef.endVerse - parsedRef.startVerse + 1,
+      )
+    : []
+  const variants =
+    bibleVariants.length > 0
+      ? bibleVariants.map((t) => ({
+          translation: t,
+          text: getVerseRange(parsedRef!.book, parsedRef!.chapter, parsedRef!.startVerse, parsedRef!.endVerse, t)
+            .map((v) => v.text)
+            .join(' '),
+        }))
+      : isVerse
+        ? availableTranslationsFor(content.ref)
+        : []
   const t = useT()
   return (
     <div>
@@ -998,12 +1016,13 @@ function OutputBox({
           justifyContent: 'center',
           padding: 14,
           gap: 8,
+          overflowY: 'auto',
         }}
       >
         {content?.type === 'verse' ? (
           <>
             <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: content.secondaryText ? 7.5 : 9, color: '#fff', textAlign: 'center', lineHeight: 1.5 }}>
-              {content.text.length > 110 ? content.text.slice(0, 110) + '…' : content.text}
+              {content.text}
             </div>
             <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: 8, color: '#A8702E', textAlign: 'center' }}>
               {content.ref} ({content.translation})
@@ -1014,7 +1033,7 @@ function OutputBox({
               <>
                 <div style={{ width: '60%', height: 1, background: 'rgba(255,255,255,0.15)', margin: '2px 0' }} />
                 <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: 7.5, color: '#fff', opacity: 0.85, textAlign: 'center', lineHeight: 1.5 }}>
-                  {content.secondaryText.length > 110 ? content.secondaryText.slice(0, 110) + '…' : content.secondaryText}
+                  {content.secondaryText}
                 </div>
                 <div style={{ fontFamily: 'Lora, Georgia, serif', fontSize: 7, color: '#A8702E', opacity: 0.8, textAlign: 'center' }}>
                   {content.ref} ({content.secondaryTranslation})
@@ -1035,7 +1054,7 @@ function OutputBox({
           </>
         ) : content?.type === 'slide' ? (
           <div style={{ fontFamily: 'Inter, Segoe UI, sans-serif', fontSize: 8.5, fontWeight: 500, color: '#fff', textAlign: 'center', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
-            {content.text.length > 140 ? content.text.slice(0, 140) + '…' : content.text}
+            {content.text}
           </div>
         ) : content?.type === 'timer' ? (
           <div style={{ textAlign: 'center' }}>

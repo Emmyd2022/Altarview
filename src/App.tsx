@@ -240,6 +240,10 @@ export default function App() {
   // same real song/lyrics data -- lets Playlist look up a song's actual
   // sections for inline verse/chorus navigation.
   const [songs, setSongs] = useState<Song[]>(DEFAULT_SONGS)
+  // ALT: Bible import -- bumped whenever Settings imports a new
+  // translation file, so Operator re-renders and picks up the newly
+  // added (mutated in bibleModel.ts) chapters/verses.
+  const [bibleDataVersion, setBibleDataVersion] = useState(0)
   const [activeThemeId, setActiveThemeId] = useState(
     DEFAULT_THEMES.find((t) => t.category === 'Middle')?.id ?? DEFAULT_THEMES[0].id,
   )
@@ -281,6 +285,7 @@ export default function App() {
       <OperatorScreen
         page={operatorPage}
         onChangePage={setOperatorPage}
+        bibleDataVersion={bibleDataVersion}
         previewContent={previewContent}
         liveContent={liveContent}
         onSendPreview={(v) => setPreviewContent({ type: 'verse', ...v })}
@@ -332,7 +337,7 @@ export default function App() {
     plugins: <PluginsScreen />,
     recording: <RecordingScreen />,
     remote: <RemoteControlScreen />,
-    settings: <SettingsScreen />,
+    settings: <SettingsScreen onBibleImported={() => setBibleDataVersion((v) => v + 1)} />,
     'stage-control': (
       <StageControlScreen
         state={stageTimer}
