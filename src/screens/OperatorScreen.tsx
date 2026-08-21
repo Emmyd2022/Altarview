@@ -358,7 +358,18 @@ export default function OperatorScreen({
     openPinnedItem(p)
     let content: DisplayContent | null = null
     if (p.type === 'verse' && p.verseRef && p.verseTranslation && p.verseText) {
-      content = { type: 'verse', ref: p.verseRef, translation: p.verseTranslation, text: p.verseText }
+      // ALT-fix: Send should only push the FIRST verse of a pinned group,
+      // not the whole combined range -- re-fetch just that one verse
+      // rather than using the stored (combined) text.
+      const parsed = parseReference(p.verseRef)
+      if (parsed) {
+        const firstVerse = getVerseRange(parsed.book, parsed.chapter, parsed.startVerse, parsed.startVerse, p.verseTranslation)
+        content = firstVerse[0]
+          ? { type: 'verse', ref: rangeLabel(parsed.book, parsed.chapter, parsed.startVerse, parsed.startVerse), translation: p.verseTranslation, text: firstVerse[0].text }
+          : { type: 'verse', ref: p.verseRef, translation: p.verseTranslation, text: p.verseText }
+      } else {
+        content = { type: 'verse', ref: p.verseRef, translation: p.verseTranslation, text: p.verseText }
+      }
     } else if (p.type === 'song' && p.songTitle && p.songLines) {
       content = { type: 'song', title: p.songTitle, artist: p.songArtist ?? '', lines: p.songLines }
     } else if (p.type === 'slide' && p.slideText) {
