@@ -149,6 +149,19 @@ export function listLoadedTranslations(): string[] {
   return Array.from(set).sort()
 }
 
+// ALT-STAGE2-PART5: read-out functions for persistence -- lets a
+// repository snapshot everything currently loaded (built-in KJV +
+// anything imported this session) so it can be saved and reloaded into
+// this same Map/array on the next app start, instead of imports being
+// lost on every refresh.
+export function getAllLoadedChapters(): { book: string; chapter: number; translation: string; verses: string[] }[] {
+  return Array.from(CHAPTER_MAP.values()).map((c) => ({ book: c.book, chapter: c.chapter, translation: c.translation, verses: c.verses }))
+}
+
+export function getAllLoadedVerses(): BibleVerse[] {
+  return [...MULTI_TRANSLATION_VERSES]
+}
+
 export function bookChapterKey(book: string, chapter: number): string {
   return `${book.toLowerCase()}|${chapter}`
 }

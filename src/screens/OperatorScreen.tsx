@@ -125,6 +125,8 @@ export default function OperatorScreen({
   onSendStageContent,
   sessions,
   bibleDataVersion,
+  pinned: pinnedProp,
+  onChangePinned,
 }: {
   page: OperatorPage
   onChangePage: (page: OperatorPage) => void
@@ -146,6 +148,11 @@ export default function OperatorScreen({
   onSendLiveContent?: (content: DisplayContent) => void
   onSendStageContent?: (content: DisplayContent) => void
   sessions?: ServiceSession[]
+  // ALT-STAGE2-PART4/6: lifted so Pinned items -- persistent state -- can
+  // be saved/restored by App.tsx the same way songs/themes/sessions are,
+  // instead of being lost whenever the operator navigates away.
+  pinned?: PinnedItem[]
+  onChangePinned?: (pinned: PinnedItem[]) => void
 }) {
   const t = useT()
   const [query, setQuery] = useState('')
@@ -157,7 +164,13 @@ export default function OperatorScreen({
   // ALT-024/expanded: pinned/anchored items for fast recall mid-service --
   // now supports any resource type (verse, song slide, sermon slide,
   // timer preset, Up Next transition), not just scriptures.
-  const [pinned, setPinned] = useState<PinnedItem[]>([])
+  const [localPinned, setLocalPinned] = useState<PinnedItem[]>([])
+  const pinned = pinnedProp ?? localPinned
+  function setPinned(updater: PinnedItem[] | ((prev: PinnedItem[]) => PinnedItem[])) {
+    const next = typeof updater === 'function' ? (updater as (prev: PinnedItem[]) => PinnedItem[])(pinned) : updater
+    if (onChangePinned) onChangePinned(next)
+    else setLocalPinned(next)
+  }
   // ALT-fix: "Now on Screen" panel widened (260 -> 320 default) and made
   // drag-resizable, since translation compare / longer song lines were
   // cramped at the old fixed width.

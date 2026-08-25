@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { APP_INITIALS } from './config'
 import type { DisplayContent } from './screens/OutputStage'
 import { useStageTimer } from './hooks/useStageTimer'
@@ -12,6 +12,9 @@ import PlaylistScreen from './screens/PlaylistScreen'
 import ThemesScreen from './screens/ThemesScreen'
 import { DEFAULT_THEMES, type ThemeDef } from './themeModel'
 import { DEFAULT_SONGS, type Song } from './songModel'
+import { getAppServices } from './core/AppServices'
+import { getAllLoadedChapters, getAllLoadedVerses, addImportedChapter, addImportedVerses } from './bibleModel'
+import type { PinnedItem } from './pinModel'
 import MediaScreen from './screens/MediaScreen'
 import PluginsScreen from './screens/PluginsScreen'
 import RecordingScreen from './screens/RecordingScreen'
@@ -248,6 +251,106 @@ export default function App() {
     DEFAULT_THEMES.find((t) => t.category === 'Middle')?.id ?? DEFAULT_THEMES[0].id,
   )
   const activeTheme = themes.find((t) => t.id === activeThemeId) ?? null
+  // ALT-STAGE2-PART4/6: pinned items are persistent state -- lifted here
+  // (previously local to OperatorScreen, lost on navigation) so they can
+  // be saved/restored the same way songs/themes/sessions already are.
+  const [pinned, setPinned] = useState<PinnedItem[]>([])
+  // ALT-STAGE2-PART2/6: real persistence. `loading` gates the first
+  // render so we don't briefly flash default data before persisted data
+  // (if any exists) has loaded -- and so the save-effects below don't
+  // fire during the load itself, which would just re-save what was just
+  // loaded.
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const services = await getAppServices()
+      const [storedSongs, storedThemes, storedSessions, storedPinned, activeThemeMeta, chapters, verses] = await Promise.all([
+        services.songRepo.getAll(),
+        services.themeRepo.getAll(),
+        services.serviceRepo.getAll(),
+        services.pinnedRepo.getAll(),
+        services.themeRepo.getActiveThemeId(),
+        services.bibleRepo.getAllChapters(),
+        services.bibleRepo.getAllVerses(),
+      ])
+      if (cancelled) return
+      if (storedSongs.length > 0) setSongs(storedSongs)
+      if (storedThemes.length > 0) setThemes(storedThemes)
+      if (storedSessions.length > 0) setSessions(storedSessions)
+      if (storedPinned.length > 0) setPinned(storedPinned)
+      if (activeThemeMeta) setActiveThemeId(activeThemeMeta)
+      // ALT-STAGE2-PART5: repopulate bibleModel's in-memory Map with
+      // whatever was previously imported, so imported translations
+      // survive a reload instead of only lasting the current session.
+      for (const c of chapters) addImportedChapter(c.book, c.chapter, c.translation, c.verses)
+      if (verses.length > 0) addImportedVerses(verses)
+      if (chapters.length > 0 || verses.length > 0) setBibleDataVersion((v) => v + 1)
+      setLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ALT-STAGE2-PART2/6: save-on-change effects. Each one is a no-op
+  // until the initial load above completes, so we never overwrite
+  // freshly-loaded persisted data with the in-memory defaults it was
+  // about to be replaced by.
+  useEffect(() => {
+    if (loading) return
+    getAppServices().then((s) => s.songRepo.saveAll(songs))
+  }, [songs, loading])
+
+  useEffect(() => {
+    if (loading) return
+    getAppServices().then((s) => s.themeRepo.saveAll(themes))
+  }, [themes, loading])
+
+  useEffect(() => {
+    if (loading) return
+    getAppServices().then((s) => s.themeRepo.setActiveThemeId(activeThemeId))
+  }, [activeThemeId, loading])
+
+  useEffect(() => {
+    if (loading) return
+    getAppServices().then((s) => s.serviceRepo.replaceAll(sessions))
+  }, [sessions, loading])
+
+  useEffect(() => {
+    if (loading) return
+    getAppServices().then((s) => s.pinnedRepo.replaceAll(pinned))
+  }, [pinned, loading])
+
+  // ALT-STAGE2-PART5: persists the FULL current Bible dataset snapshot
+  // (built-in + everything imported so far) whenever bibleDataVersion
+  // changes -- i.e. right after a new import completes. Simpler and more
+  // robust than trying to persist only "the delta" from each import call.
+  useEffect(() => {
+    if (loading || bibleDataVersion === 0) return
+    getAppServices().then(async (s) => {
+      const chapters = getAllLoadedChapters().map((c) => ({ id: `${c.book}|${c.chapter}|${c.translation}`, ...c }))
+      const verses = getAllLoadedVerses().map((v) => ({ id: `${v.book}|${v.chapter}|${v.verse}|${v.translation}`, ...v }))
+      await Promise.all([
+        ...chapters.map((c) => s.bibleRepo.saveChapter(c)),
+        s.bibleRepo.saveVerses(verses),
+      ])
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bibleDataVersion, loading])
+
+  // ALT-STAGE2-PART2: a minimal, deliberately unstyled loading gate --
+  // Stage 2 does not redesign the interface, so this is intentionally
+  // plain rather than a polished splash screen.
+  if (loading) {
+    return (
+      <div style={{ width: '100vw', height: '100vh', background: '#10160F', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ color: '#8F9885', fontFamily: 'Inter, Segoe UI, sans-serif', fontSize: 13 }}>Loading Altarview…</span>
+      </div>
+    )
+  }
 
   if (screen === 'preview') {
     return (
@@ -311,6 +414,8 @@ export default function App() {
         onSendLiveContent={(content) => setLiveContent(content)}
         onSendStageContent={(content) => setStageContent(content)}
         sessions={sessions}
+        pinned={pinned}
+        onChangePinned={setPinned}
       />
     ),
     playlist: (
