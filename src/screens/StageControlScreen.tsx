@@ -12,12 +12,21 @@ export default function StageControlScreen({
   onPushToLive,
   hasStageContent,
   onClearStage,
+  onNextFoldback,
+  onPreviousFoldback,
 }: {
   state: StageTimerState
   onOpenStageOutput?: () => void
   onPushToLive?: (content: TimerDisplayContent) => void
   hasStageContent?: boolean
   onClearStage?: () => void
+  // ALT-STAGE3-PART7/9: navigates whatever CONTENT is currently pushed to
+  // Foldback (verse/song), independent of Live -- only meaningful while
+  // hasStageContent is true; the session timer has its own Next/Previous
+  // further down (goToNext/goToPrevious on `state`), which is a
+  // completely separate concept per the brief's own Section 18/19.
+  onNextFoldback?: () => void
+  onPreviousFoldback?: () => void
 }) {
   const [messageInput, setMessageInput] = useState('')
 
@@ -69,6 +78,28 @@ export default function StageControlScreen({
         {hasStageContent && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
             <span style={{ fontSize: 11, color: '#A8702E' }}>Content on Stage</span>
+            {/* ALT-STAGE3-PART7/9: navigates the pushed CONTENT, not the
+                session timer -- only shown while content is actually on
+                Foldback, since "next verse/slide" has no meaning for the
+                timer view. */}
+            {onPreviousFoldback && (
+              <button
+                onClick={onPreviousFoldback}
+                title="Previous item on Foldback"
+                style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '4px 8px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                ←
+              </button>
+            )}
+            {onNextFoldback && (
+              <button
+                onClick={onNextFoldback}
+                title="Next item on Foldback"
+                style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '4px 8px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                →
+              </button>
+            )}
             {onClearStage && (
               <button
                 onClick={onClearStage}

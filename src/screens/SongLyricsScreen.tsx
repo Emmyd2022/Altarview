@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song, type SongSlide } from '../songModel'
 import type { DisplayContent } from './OutputStage'
 import type { PinnedItem } from '../pinModel'
+import { useKeyboardShortcuts } from '../core/useKeyboardShortcuts'
 
 
 // ALT-011: sample duplicate-detection result -- in the real app this
@@ -356,12 +357,44 @@ export default function SongLyricsScreen({
     onSendStage?.(content)
   }
 
+  // ALT-STAGE3-PART13: Live + Foldback only, distinct from double-click's
+  // "send everywhere including Preview" -- exposed via Shift+Enter below.
+  function sendActiveSlideToBoth() {
+    if (!openedSong || !activeSlide) return
+    const content = slideToContent(openedSong, activeSlide.lines, activeSlideKey!.slideIndex)
+    onSendLive?.(content)
+    onSendStage?.(content)
+  }
+
   function jumpToSection(sectionIndex: number) {
     if (!openedSong) return
     const idx = firstSlideIndexForSection(openedSlides, sectionIndex)
     const slide = openedSlides[idx]
     if (slide) singleClickSlide(openedSong, slide, idx)
   }
+
+  // ALT-STAGE3-PART22: same shortcut pattern as Scripture -- active only
+  // while a song is open. Arrow Left/Right step through slides, Escape
+  // closes back to the library, Shift+Enter sends to Live + Foldback.
+  useKeyboardShortcuts(
+    {
+      onNext: () => {
+        if (!openedSong || !activeSlideKey) return
+        const idx = activeSlideKey.slideIndex + 1
+        const slide = openedSlides[idx]
+        if (slide) singleClickSlide(openedSong, slide, idx)
+      },
+      onPrevious: () => {
+        if (!openedSong || !activeSlideKey) return
+        const idx = activeSlideKey.slideIndex - 1
+        const slide = openedSlides[idx]
+        if (slide) singleClickSlide(openedSong, slide, idx)
+      },
+      onEscape: () => setOpenedSongId(null),
+      onSendBoth: sendActiveSlideToBoth,
+    },
+    !!openedSong,
+  )
 
   function updateLinesPerSlide(id: string, lines: number) {
     setSongs((prev) => prev.map((s) => (s.id === id ? { ...s, linesPerSlide: Math.max(1, lines) } : s)))

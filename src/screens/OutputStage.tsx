@@ -18,6 +18,16 @@ export interface VerseDisplayContent {
   // "Compare translations" control).
   secondaryTranslation?: string
   secondaryText?: string
+  // ALT-STAGE3-PART3/5: structured position, separate from `ref` (which
+  // stays the human-readable GROUP label, e.g. "John 3:16-20"). These let
+  // the Presentation Engine navigate this specific destination's current
+  // verse independently of any other destination or of Operator's own
+  // local reading-view state -- book/chapter/verse is the single verse
+  // actually being shown right now, which may be anywhere inside (or
+  // beyond) the group `ref` describes.
+  book?: string
+  chapter?: number
+  verse?: number
 }
 
 // ALT: real Send to Preview/Live for songs -- previously Song Lyrics had
@@ -48,6 +58,13 @@ export interface TimerDisplayContent {
 export interface SlideDisplayContent {
   type: 'slide'
   text: string
+  // ALT-STAGE3-PART3/5: optional position, mirroring the pattern used for
+  // songs -- lets the Presentation Engine navigate a specific destination
+  // through a slide deck independently, when the content was sent with
+  // this information attached. Content sent without it (e.g. a single
+  // freeform slide with no deck) simply has no next/previous to navigate.
+  deckId?: string
+  slideIndex?: number
 }
 
 export type DisplayContent = VerseDisplayContent | SongDisplayContent | TimerDisplayContent | SlideDisplayContent

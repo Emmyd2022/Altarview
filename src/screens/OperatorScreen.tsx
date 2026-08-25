@@ -11,6 +11,7 @@ import type { Song } from '../songModel'
 import type { ServiceSession } from '../sessionModel'
 import { newPinId, type PinnedItem } from '../pinModel'
 import { parseReference, getVerseRange, chapterVerseCount, nextVerseRef, previousVerseRef, rangeLabel, type VerseRef } from '../bibleModel'
+import { useKeyboardShortcuts } from '../core/useKeyboardShortcuts'
 
 // ALT: unified Operator screen -- Scripture, Songs, Slides, Timer, and Up
 // Next are pages within this one screen instead of separate top-level
@@ -127,6 +128,7 @@ export default function OperatorScreen({
   bibleDataVersion,
   pinned: pinnedProp,
   onChangePinned,
+  foldbackContent,
 }: {
   page: OperatorPage
   onChangePage: (page: OperatorPage) => void
@@ -153,6 +155,10 @@ export default function OperatorScreen({
   // instead of being lost whenever the operator navigates away.
   pinned?: PinnedItem[]
   onChangePinned?: (pinned: PinnedItem[]) => void
+  // ALT-STAGE3-PART11: for the "Now on Screen" panel to show Foldback
+  // status alongside Preview/Live -- read-only display here; sending/
+  // clearing Foldback content happens from Stage Control.
+  foldbackContent?: DisplayContent | null
 }) {
   const t = useT()
   const [query, setQuery] = useState('')
@@ -243,7 +249,20 @@ export default function OperatorScreen({
   function openedRangeToContentFor(book: string, chapter: number, start: number, end: number): DisplayContent | null {
     const verses = getVerseRange(book, chapter, start, end, translation)
     if (verses.length === 0) return null
-    return { type: 'verse', ref: rangeLabel(book, chapter, start, end), translation, text: verses.map((v) => v.text).join(' ') }
+    // ALT-STAGE3-PART3/5: position is the LAST verse of the range -- this
+    // matches the existing "continue reading from where the range left
+    // off" convention already used by the local Previous/Next Verse
+    // buttons, and is what lets the Presentation Engine's nextLive()/
+    // nextFoldback() correctly continue from here independently later.
+    return {
+      type: 'verse',
+      ref: rangeLabel(book, chapter, start, end),
+      translation,
+      text: verses.map((v) => v.text).join(' '),
+      book,
+      chapter,
+      verse: end,
+    }
   }
 
   // ALT-fix: Previous/Next Verse now sends the new verse to all screens
@@ -287,6 +306,28 @@ export default function OperatorScreen({
       onSendStageContent?.(content)
     }
   }
+
+  // ALT-STAGE3-PART22: keyboard shortcuts, active only while a passage is
+  // open and only on the Scripture page -- Arrow Left/Right step the
+  // active verse (same as the Previous/Next Verse buttons), Escape
+  // closes back to search, Shift+Enter sends the active verse to
+  // Live + Foldback at once (Section 13).
+  useKeyboardShortcuts(
+    {
+      onNext: goToNextVerse,
+      onPrevious: goToPreviousVerse,
+      onEscape: () => setOpenedRange(null),
+      onSendBoth: () => {
+        if (!openedRange || activeVerseNum === null) return
+        const content = openedRangeToContentFor(openedRange.book, openedRange.chapter, activeVerseNum, activeVerseNum)
+        if (content) {
+          onSendLiveContent?.(content)
+          onSendStageContent?.(content)
+        }
+      },
+    },
+    page === 'scripture' && !!openedRange,
+  )
 
   useEffect(() => {
     if (!resizingSidebar) return
@@ -838,6 +879,33 @@ export default function OperatorScreen({
 
           {/* LIVE box */}
           <OutputBox label={t.live} labelColor="#6FC98A" content={liveContent} onClear={onClearLive} onChangeTranslation={onChangeLiveTranslation} onSetSecondary={onSetLiveSecondary} />
+
+          {/* ALT-STAGE3-PART11: Foldback status -- distinct from Live,
+              read-only here (sending/clearing happens from Stage
+              Control). Kept compact per "should not become visually
+              overloaded" -- just type/title/position, no controls. */}
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', color: '#C97A4A', textTransform: 'uppercase', marginBottom: 6 }}>
+              Foldback
+            </div>
+            <div style={{ background: '#000', border: '1px solid #2A331F', borderRadius: 6, padding: '8px 10px' }}>
+              {!foldbackContent ? (
+                <div style={{ fontSize: 10, color: '#3A4430' }}>Showing timer</div>
+              ) : foldbackContent.type === 'verse' ? (
+                <div style={{ fontSize: 10, color: '#fff' }}>
+                  {foldbackContent.ref} <span style={{ color: '#C97A4A' }}>({foldbackContent.translation})</span>
+                </div>
+              ) : foldbackContent.type === 'song' ? (
+                <div style={{ fontSize: 10, color: '#fff' }}>
+                  {foldbackContent.title} <span style={{ color: '#C97A4A' }}>(song)</span>
+                </div>
+              ) : foldbackContent.type === 'slide' ? (
+                <div style={{ fontSize: 10, color: '#fff' }}>Slide content</div>
+              ) : (
+                <div style={{ fontSize: 10, color: '#fff' }}>Timer</div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Divider */}

@@ -80,7 +80,17 @@ export function useStageTimer(items: ServiceSession[] = DEFAULT_SESSIONS) {
     }
   }
 
+  // ALT-STAGE3-PART7: "START should behave as a fresh start/restart. If
+  // the timer has finished or was previously stopped, pressing START
+  // starts the timer from its configured starting duration again." --
+  // previously start() always resumed from wherever `remaining` sat, so
+  // pressing Start after Stop (which sets timesUp) would incorrectly
+  // resume from 0 instead of restarting. A simple pause->resume (never
+  // stopped) still continues from where it paused, unchanged.
   function start() {
+    if (timesUp) {
+      setRemaining(current.durationMinutes * 60)
+    }
     setTimesUp(false)
     setRunning(true)
   }

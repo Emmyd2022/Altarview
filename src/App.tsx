@@ -13,6 +13,7 @@ import ThemesScreen from './screens/ThemesScreen'
 import { DEFAULT_THEMES, type ThemeDef } from './themeModel'
 import { DEFAULT_SONGS, type Song } from './songModel'
 import { getAppServices } from './core/AppServices'
+import { usePresentationEngine } from './core/PresentationEngine'
 import { getAllLoadedChapters, getAllLoadedVerses, addImportedChapter, addImportedVerses } from './bibleModel'
 import type { PinnedItem } from './pinModel'
 import MediaScreen from './screens/MediaScreen'
@@ -20,6 +21,7 @@ import PluginsScreen from './screens/PluginsScreen'
 import RecordingScreen from './screens/RecordingScreen'
 import RemoteControlScreen from './screens/RemoteControlScreen'
 import SettingsScreen from './screens/SettingsScreen'
+import PresentationTestMode from './screens/PresentationTestMode'
 
 type Screen =
   | 'operator'
@@ -38,6 +40,7 @@ type Screen =
   | 'live'
   | 'stage'
   | 'stage-control'
+  | 'test-mode'
 
 interface NavItem {
   id: Screen
@@ -165,6 +168,16 @@ const MANAGE_NAV: NavItem[] = [
       </svg>
     ),
   },
+  {
+    id: 'test-mode',
+    label: 'Presentation Test Mode',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M6 3l6 6-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="14" cy="15" r="1.4" fill="currentColor" />
+      </svg>
+    ),
+  },
 ]
 
 function NavButton({
@@ -223,13 +236,13 @@ export default function App() {
     setScreen('operator')
     setOperatorPage(page)
   }
-  // ALT-003: lifted here so Operator and the two output screens share
-  // one source of truth instead of each faking its own local state.
-  const [previewContent, setPreviewContent] = useState<DisplayContent | null>(null)
-  const [liveContent, setLiveContent] = useState<DisplayContent | null>(null)
-  // ALT: Send to Stage -- separate from Preview/Live, replaces the Stage
-  // timer view entirely while set, per the confirmed behavior.
-  const [stageContent, setStageContent] = useState<DisplayContent | null>(null)
+  // ALT-STAGE3: Preview/Live/Foldback(Stage) are now owned by the
+  // Presentation Engine (src/core/PresentationEngine.ts) instead of raw
+  // useState here -- this is the single authoritative presentation state
+  // the brief requires. Instantiated below, after `songs` is declared
+  // (song navigation needs it). `previewContent`/`liveContent`/
+  // `stageContent` stay as read-only aliases so every existing call site
+  // elsewhere in this file keeps working unchanged.
   // ALT-017/018/019: lifted so the Stage output and the operator's Stage
   // Control panel share one timer instead of each faking its own.
   // ALT-022: sessions are lifted here too, so the Playlist editor and the
@@ -243,6 +256,12 @@ export default function App() {
   // same real song/lyrics data -- lets Playlist look up a song's actual
   // sections for inline verse/chorus navigation.
   const [songs, setSongs] = useState<Song[]>(DEFAULT_SONGS)
+  // ALT-STAGE3: the engine, now that `songs` (needed for song-navigation
+  // logic) exists.
+  const engine = usePresentationEngine(songs)
+  const previewContent = engine.preview
+  const liveContent = engine.live
+  const stageContent = engine.foldback
   // ALT: Bible import -- bumped whenever Settings imports a new
   // translation file, so Operator re-renders and picks up the newly
   // added (mutated in bibleModel.ts) chapters/verses.
@@ -365,12 +384,10 @@ export default function App() {
         <LiveScreen
           content={liveContent}
           onExit={() => setScreen('operator')}
-          onChangeTranslation={(translation, text) =>
-            setLiveContent((prev) => (prev && prev.type === 'verse' ? { ...prev, translation, text } : prev))
-          }
+          onChangeTranslation={(translation, text) => engine.changeLiveTranslation(translation, text)}
           theme={activeTheme}
           songs={songs}
-          onNavigateSong={(content) => setLiveContent(content)}
+          onNavigateSong={(content) => engine.sendToLive(content)}
         />
       </div>
     )
@@ -391,31 +408,24 @@ export default function App() {
         bibleDataVersion={bibleDataVersion}
         previewContent={previewContent}
         liveContent={liveContent}
-        onSendPreview={(v) => setPreviewContent({ type: 'verse', ...v })}
-        onSendLive={(v) => setLiveContent({ type: 'verse', ...v })}
-        onPushToLive={() => setLiveContent(previewContent)}
-        onClearPreview={() => setPreviewContent(null)}
-        onClearLive={() => setLiveContent(null)}
-        onChangeLiveTranslation={(translation, text) =>
-          setLiveContent((prev) => (prev && prev.type === 'verse' ? { ...prev, translation, text } : prev))
-        }
-        onSetLiveSecondary={(translation, text) =>
-          setLiveContent((prev) =>
-            prev && prev.type === 'verse'
-              ? { ...prev, secondaryTranslation: translation ?? undefined, secondaryText: text ?? undefined }
-              : prev,
-          )
-        }
+        onSendPreview={(v) => engine.stageToPreview({ type: 'verse', ...v })}
+        onSendLive={(v) => engine.sendToLive({ type: 'verse', ...v })}
+        onPushToLive={() => engine.pushPreviewToLive()}
+        onClearPreview={() => engine.clearPreview()}
+        onClearLive={() => engine.clearLive()}
+        onChangeLiveTranslation={(translation, text) => engine.changeLiveTranslation(translation, text)}
+        onSetLiveSecondary={(translation, text) => engine.setLiveSecondaryTranslation(translation, text)}
         onOpenPreview={() => setScreen('preview')}
         onOpenLive={() => setScreen('live')}
         songs={songs}
         onChangeSongs={setSongs}
-        onSendPreviewContent={(content) => setPreviewContent(content)}
-        onSendLiveContent={(content) => setLiveContent(content)}
-        onSendStageContent={(content) => setStageContent(content)}
+        onSendPreviewContent={(content) => engine.stageToPreview(content)}
+        onSendLiveContent={(content) => engine.sendToLive(content)}
+        onSendStageContent={(content) => engine.sendToFoldback(content)}
         sessions={sessions}
         pinned={pinned}
         onChangePinned={setPinned}
+        foldbackContent={stageContent}
       />
     ),
     playlist: (
@@ -438,18 +448,21 @@ export default function App() {
         onSetActive={setActiveThemeId}
       />
     ),
-    media: <MediaScreen onSendLive={(content) => setLiveContent(content)} />,
+    media: <MediaScreen onSendLive={(content) => engine.sendToLive(content)} />,
     plugins: <PluginsScreen />,
     recording: <RecordingScreen />,
     remote: <RemoteControlScreen />,
     settings: <SettingsScreen onBibleImported={() => setBibleDataVersion((v) => v + 1)} />,
+    'test-mode': <PresentationTestMode engine={engine} stageTimer={stageTimer} />,
     'stage-control': (
       <StageControlScreen
         state={stageTimer}
         onOpenStageOutput={() => setScreen('stage')}
-        onPushToLive={(content) => setLiveContent(content)}
+        onPushToLive={(content) => engine.sendToLive(content)}
         hasStageContent={!!stageContent}
-        onClearStage={() => setStageContent(null)}
+        onClearStage={() => engine.clearFoldback()}
+        onNextFoldback={() => engine.nextFoldback()}
+        onPreviousFoldback={() => engine.previousFoldback()}
       />
     ),
   }
