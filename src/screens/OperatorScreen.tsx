@@ -11,6 +11,7 @@ import type { Song } from '../songModel'
 import type { ServiceSession } from '../sessionModel'
 import { newPinId, type PinnedItem } from '../pinModel'
 import { parseReference, getVerseRange, chapterVerseCount, nextVerseRef, previousVerseRef, rangeLabel, type VerseRef } from '../bibleModel'
+import { scriptureEngine } from '../scripture/services/ScriptureEngine'
 import { useKeyboardShortcuts } from '../core/useKeyboardShortcuts'
 
 // ALT: unified Operator screen -- Scripture, Songs, Slides, Timer, and Up
@@ -452,12 +453,17 @@ export default function OperatorScreen({
     setDragOverPinIdx(null)
   }
 
+  // ALT-STAGE4-PART3/24: search now goes through the Scripture Engine
+  // (reference-first detection, exact-phrase ranking, dedup) instead of
+  // a flat substring filter over SAMPLE_VERSES. Falls back to browsing
+  // SAMPLE_VERSES when the query is empty, preserving the existing
+  // "browse everything" behavior with no query typed.
   const filtered = query.trim()
-    ? SAMPLE_VERSES.filter(
-        (v) =>
-          v.ref.toLowerCase().includes(query.toLowerCase()) ||
-          v.text.toLowerCase().includes(query.toLowerCase()),
-      )
+    ? scriptureEngine.search(query, { translationId: translation }).map((r) => ({
+        ref: `${scriptureEngine.getBook(r.reference.bookId)?.name ?? r.reference.bookId} ${r.reference.chapter}:${r.reference.verse}`,
+        translation: r.translation.toUpperCase(),
+        text: r.verse.text,
+      }))
     : SAMPLE_VERSES
 
   return (
