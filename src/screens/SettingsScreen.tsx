@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { LANGUAGES, useLanguage, useT } from '../i18n'
 import { importZefaniaXML, importSimpleJSON, type ImportResult } from '../bibleImport'
+import { importZefaniaXMLValidated, importSimpleJSONValidated, type ImportValidationResult } from '../scripture/services/scriptureImport'
 import { listLoadedTranslations } from '../bibleModel'
 
 // ALT: EasyVerse-style Translation Library -- curated list of common
@@ -66,6 +67,22 @@ export default function SettingsScreen({ onBibleImported }: { onBibleImported?: 
   const [obsConnected] = useState(true)
   const [importTranslationName, setImportTranslationName] = useState('')
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
+
+  // ALT-STAGE4-1-PART9/10: adapts the Stage 4 validated pipeline's richer
+  // result shape into the existing display shape, so the UI below (built
+  // in Stage 2) doesn't need restructuring -- Section 12's "meaningful
+  // errors, not technical messages" is satisfied by
+  // scriptureImport.ts's own error messages, which are already
+  // operator-readable (e.g. "'NotARealBook' is not a recognized Bible
+  // book name"), not raw exceptions.
+  function toDisplayResult(validated: ImportValidationResult): ImportResult {
+    return {
+      translation: validated.translationName,
+      chaptersImported: validated.valid ? validated.summary.chapters : 0,
+      versesImported: validated.valid ? validated.summary.verses : 0,
+      errors: validated.errors.map((e) => (e.chapter ? `${e.bookNameRaw} ${e.chapter}: ${e.message}` : e.bookNameRaw ? `${e.bookNameRaw}: ${e.message}` : e.message)),
+    }
+  }
   const bibleFileInputRef = useRef<HTMLInputElement>(null)
   const [ndiEnabled, setNdiEnabled] = useState(false)
   const [streamingTool, setStreamingTool] = useState('OBS Studio')
@@ -405,19 +422,26 @@ export default function SettingsScreen({ onBibleImported }: { onBibleImported?: 
                   const file = e.target.files?.[0]
                   if (!file) return
                   const text = await file.text()
-                  let result: ImportResult
+                  let validated: ImportValidationResult
                   if (file.name.toLowerCase().endsWith('.json')) {
-                    result = importSimpleJSON(text)
+                    validated = importSimpleJSONValidated(text)
                   } else {
                     if (!importTranslationName.trim()) {
                       setImportResult({ translation: '', chaptersImported: 0, versesImported: 0, errors: ['Enter a translation name before importing an XML file.'] })
                       e.target.value = ''
                       return
                     }
-                    result = importZefaniaXML(text, importTranslationName.trim())
+                    // ALT-STAGE4-1-PART9/10: the validated pipeline
+                    // stages and validates BEFORE committing anything --
+                    // an invalid file leaves the installed library
+                    // completely untouched (Section 10's explicit
+                    // requirement), unlike the old importer which
+                    // committed each chapter as it parsed.
+                    validated = importZefaniaXMLValidated(text, importTranslationName.trim())
                   }
+                  const result = toDisplayResult(validated)
                   setImportResult(result)
-                  if (result.chaptersImported > 0 || result.versesImported > 0) onBibleImported?.()
+                  if (validated.valid) onBibleImported?.()
                   e.target.value = ''
                 }}
               />

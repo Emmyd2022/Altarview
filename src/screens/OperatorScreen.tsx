@@ -13,6 +13,9 @@ import { newPinId, type PinnedItem } from '../pinModel'
 import { parseReference, getVerseRange, chapterVerseCount, nextVerseRef, previousVerseRef, rangeLabel, type VerseRef } from '../bibleModel'
 import { scriptureEngine } from '../scripture/services/ScriptureEngine'
 import { useKeyboardShortcuts } from '../core/useKeyboardShortcuts'
+import { useScripturePresentationState } from '../scripture/state/useScripturePresentationState'
+import { useRecentScripture } from '../scripture/state/useRecentScripture'
+import { findBookIdByName } from '../scripture/data/canon'
 
 // ALT: unified Operator screen -- Scripture, Songs, Slides, Timer, and Up
 // Next are pages within this one screen instead of separate top-level
@@ -183,16 +186,14 @@ export default function OperatorScreen({
   // cramped at the old fixed width.
   const [sidebarWidth, setSidebarWidth] = useState(320)
   const [resizingSidebar, setResizingSidebar] = useState(false)
-  // ALT: Scripture page rebuild -- opened verse range (from a reference
-  // search like "John 3:16-20" or clicking a result), and multi-select
-  // for pinning several verses as one item (FreeShow/ProPresenter-style).
-  const [openedRange, setOpenedRange] = useState<{ book: string; chapter: number; start: number; end: number } | null>(null)
-  // ALT-fix: separated from openedRange -- openedRange is the fixed
-  // "group" (e.g. John 3:16-20) that stays intact for pinning/context,
-  // while activeVerseNum is the single verse currently navigated to. This
-  // lets Previous/Next step through the group AND beyond it into
-  // surrounding verses, without collapsing or losing the original group.
-  const [activeVerseNum, setActiveVerseNum] = useState<number | null>(null)
+  // ALT-STAGE4-1-PART3: Scripture Group/Active-Verse state now comes from
+  // the Stage 4 useScripturePresentationState hook -- no local
+  // openedRange/activeVerseNum state remains. Multi-select for pinning
+  // several verses as one item (FreeShow/ProPresenter-style) stays local
+  // since it's a UI selection concern, not Scripture domain state.
+  const scripturePresentation = useScripturePresentationState()
+  const recentScripture = useRecentScripture()
+  const { group, activeVerse } = scripturePresentation
   const [selectedVerseKeys, setSelectedVerseKeys] = useState<Set<string>>(new Set())
 
   function verseKey(book: string, chapter: number, verse: number) {
@@ -200,25 +201,56 @@ export default function OperatorScreen({
   }
 
   function openReference(ref: { book: string; chapter: number; startVerse: number; endVerse: number }) {
-    setOpenedRange({ book: ref.book, chapter: ref.chapter, start: ref.startVerse, end: ref.endVerse })
-    setActiveVerseNum(ref.startVerse)
+    const bookId = findBookIdByName(ref.book)
+    if (!bookId) return
+    scripturePresentation.openGroup({ translationId: translation, bookId, chapter: ref.chapter, startVerse: ref.startVerse, endVerse: ref.endVerse })
+    const bookName = scriptureEngine.getBook(bookId)?.name ?? ref.book
+    const label = ref.endVerse !== ref.startVerse ? `${bookName} ${ref.chapter}:${ref.startVerse}-${ref.endVerse}` : `${bookName} ${ref.chapter}:${ref.startVerse}`
+    recentScripture.record(
+      { translationId: translation, bookId, startChapter: ref.chapter, startVerse: ref.startVerse, endChapter: ref.chapter, endVerse: ref.endVerse },
+      label,
+    )
   }
 
-  const openedVerses = openedRange
-    ? getVerseRange(openedRange.book, openedRange.chapter, openedRange.start, openedRange.end, translation)
+  const groupBookName = group ? scriptureEngine.getBook(group.bookId)?.name ?? group.bookId : ''
+  const openedVerses = group
+    ? scriptureEngine.getPassage({ translationId: group.translationId, bookId: group.bookId, startChapter: group.chapter, startVerse: group.startVerse, endChapter: group.chapter, endVerse: group.endVerse })?.verses ?? []
     : []
   const openedCombinedText = openedVerses.map((v) => v.text).join(' ')
-  const openedLabel = openedRange ? rangeLabel(openedRange.book, openedRange.chapter, openedRange.start, openedRange.end) : ''
-  // ALT: FreeShow-style context -- show the whole chapter (verses before
-  // and after the target range), not just the isolated target verses, so
-  // the operator can see what comes next before deciding what to send.
-  const chapterVerses = openedRange
-    ? getVerseRange(openedRange.book, openedRange.chapter, 1, chapterVerseCount(openedRange.book, openedRange.chapter), translation)
+  const openedLabel = group ? (group.endVerse !== group.startVerse ? `${groupBookName} ${group.chapter}:${group.startVerse}-${group.endVerse}` : `${groupBookName} ${group.chapter}:${group.startVerse}`) : ''
+
+  // ALT-STAGE4-1-PART7: the DISPLAYED chapter follows the Active Verse
+  // across chapter boundaries (so Previous/Next Verse crossing chapters
+  // still visually works, per Section 4's "crossing chapter boundaries
+  // where already supported"), while the Group's OWN stored chapter
+  // never changes as a side effect of navigation -- this is what makes
+  // "Group must remain John 3:16-20 unless deliberately resized" (Section
+  // 7) actually true. A verse only shows as part of the Group's amber
+  // highlight when the displayed chapter is the SAME chapter the Group
+  // is actually in.
+  const displayBookId = activeVerse?.bookId ?? group?.bookId ?? null
+  const displayChapter = activeVerse?.chapter ?? group?.chapter ?? null
+  const chapterVerses = displayBookId && displayChapter
+    ? scriptureEngine.getChapter(translation, displayBookId, displayChapter)
     : []
+  const isViewingGroupChapter = !!group && group.bookId === displayBookId && group.chapter === displayChapter
 
   function openedRangeToContent(): DisplayContent | null {
-    if (!openedRange || openedVerses.length === 0) return null
-    return { type: 'verse', ref: openedLabel, translation, text: openedCombinedText }
+    if (!group || openedVerses.length === 0) return null
+    return { type: 'verse', ref: openedLabel, translation: group.translationId, text: openedCombinedText, book: groupBookName, chapter: group.chapter, verse: group.endVerse }
+  }
+
+  // ALT-STAGE4-1-PART6: constructs DisplayContent for a specific verse
+  // reference via the Scripture Engine -- this is the Scripture-domain
+  // ->DisplayContent conversion boundary Section 6 requires. Nothing
+  // here touches PresentationEngine directly; callers pass the result to
+  // the existing onSend* props, which are already routed through
+  // PresentationEngine in App.tsx.
+  function contentForVerseRef(ref: { translationId: string; bookId: string; chapter: number; verse: number }): DisplayContent | null {
+    const v = scriptureEngine.getVerse(ref.translationId, ref.bookId, ref.chapter, ref.verse)
+    if (!v) return null
+    const bookName = scriptureEngine.getBook(ref.bookId)?.name ?? ref.bookId
+    return { type: 'verse', ref: `${bookName} ${ref.chapter}:${ref.verse}`, translation: ref.translationId, text: v.text, book: bookName, chapter: ref.chapter, verse: ref.verse }
   }
 
   // ALT-fix: single click sets the ACTIVE verse (for navigation/sending)
@@ -227,19 +259,17 @@ export default function OperatorScreen({
   // (e.g. John 3:16-20) stays intact for Pin. Shift+click instead resizes
   // the group itself, for building/adjusting a range.
   function selectVerseInChapter(verseNum: number, extend: boolean) {
-    if (!openedRange) return
-    if (extend) {
-      setOpenedRange({ ...openedRange, start: Math.min(openedRange.start, verseNum), end: Math.max(openedRange.end, verseNum) })
-    }
-    setActiveVerseNum(verseNum)
-    const content = openedRangeToContentFor(openedRange.book, openedRange.chapter, verseNum, verseNum)
+    if (!group || !displayBookId || !displayChapter) return
+    if (extend && isViewingGroupChapter) scripturePresentation.resizeGroup(verseNum)
+    scripturePresentation.setActiveVerse(verseNum)
+    const content = contentForVerseRef({ translationId: group.translationId, bookId: displayBookId, chapter: displayChapter, verse: verseNum })
     if (content) onSendPreviewContent?.(content)
   }
 
   function sendVerseInChapter(verseNum: number) {
-    if (!openedRange) return
-    setActiveVerseNum(verseNum)
-    const content = openedRangeToContentFor(openedRange.book, openedRange.chapter, verseNum, verseNum)
+    if (!group || !displayBookId || !displayChapter) return
+    scripturePresentation.setActiveVerse(verseNum)
+    const content = contentForVerseRef({ translationId: group.translationId, bookId: displayBookId, chapter: displayChapter, verse: verseNum })
     if (content) {
       onSendPreviewContent?.(content)
       onSendLiveContent?.(content)
@@ -247,44 +277,19 @@ export default function OperatorScreen({
     }
   }
 
-  function openedRangeToContentFor(book: string, chapter: number, start: number, end: number): DisplayContent | null {
-    const verses = getVerseRange(book, chapter, start, end, translation)
-    if (verses.length === 0) return null
-    // ALT-STAGE3-PART3/5: position is the LAST verse of the range -- this
-    // matches the existing "continue reading from where the range left
-    // off" convention already used by the local Previous/Next Verse
-    // buttons, and is what lets the Presentation Engine's nextLive()/
-    // nextFoldback() correctly continue from here independently later.
-    return {
-      type: 'verse',
-      ref: rangeLabel(book, chapter, start, end),
-      translation,
-      text: verses.map((v) => v.text).join(' '),
-      book,
-      chapter,
-      verse: end,
-    }
-  }
-
   // ALT-fix: Previous/Next Verse now sends the new verse to all screens
   // immediately, matching how a live navigation should work -- the
   // congregation's screen updates the moment the operator steps forward.
-  // ALT-fix: Previous/Next now move the ACTIVE verse pointer independently
-  // of the pinned group boundary (openedRange), crossing chapters as
-  // needed -- this is what lets the operator step beyond the original
-  // group (e.g. past John 3:20) into the surrounding verses, and step
-  // back into the group again, without ever losing/resizing the group
-  // itself. Sends to all screens on every step, same as before.
+  // ALT-STAGE4-1-PART3: navigation itself now goes through
+  // scripturePresentation.nextVerse()/previousVerse() (which delegates to
+  // the Scripture Engine's chapter-crossing logic) rather than calling
+  // bibleModel's nextVerseRef/previousVerseRef directly here.
   function goToNextVerse() {
-    if (!openedRange || activeVerseNum === null) return
-    const next = nextVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: activeVerseNum })
+    if (!activeVerse) return
+    const next = scriptureEngine.nextVerse(activeVerse)
     if (!next) return
-    setActiveVerseNum(next.verse)
-    if (next.book.toLowerCase() !== openedRange.book.toLowerCase() || next.chapter !== openedRange.chapter) {
-      // Crossed into a new chapter -- the "chapter context" view follows.
-      setOpenedRange({ book: next.book, chapter: next.chapter, start: next.verse, end: next.verse })
-    }
-    const content = openedRangeToContentFor(next.book, next.chapter, next.verse, next.verse)
+    scripturePresentation.nextVerse()
+    const content = contentForVerseRef(next)
     if (content) {
       onSendPreviewContent?.(content)
       onSendLiveContent?.(content)
@@ -293,14 +298,11 @@ export default function OperatorScreen({
   }
 
   function goToPreviousVerse() {
-    if (!openedRange || activeVerseNum === null) return
-    const prev = previousVerseRef({ book: openedRange.book, chapter: openedRange.chapter, verse: activeVerseNum })
+    if (!activeVerse) return
+    const prev = scriptureEngine.previousVerse(activeVerse)
     if (!prev) return
-    setActiveVerseNum(prev.verse)
-    if (prev.book.toLowerCase() !== openedRange.book.toLowerCase() || prev.chapter !== openedRange.chapter) {
-      setOpenedRange({ book: prev.book, chapter: prev.chapter, start: prev.verse, end: prev.verse })
-    }
-    const content = openedRangeToContentFor(prev.book, prev.chapter, prev.verse, prev.verse)
+    scripturePresentation.previousVerse()
+    const content = contentForVerseRef(prev)
     if (content) {
       onSendPreviewContent?.(content)
       onSendLiveContent?.(content)
@@ -317,17 +319,17 @@ export default function OperatorScreen({
     {
       onNext: goToNextVerse,
       onPrevious: goToPreviousVerse,
-      onEscape: () => setOpenedRange(null),
+      onEscape: () => scripturePresentation.closeGroup(),
       onSendBoth: () => {
-        if (!openedRange || activeVerseNum === null) return
-        const content = openedRangeToContentFor(openedRange.book, openedRange.chapter, activeVerseNum, activeVerseNum)
+        if (!group || !activeVerse) return
+        const content = contentForVerseRef(activeVerse)
         if (content) {
           onSendLiveContent?.(content)
           onSendStageContent?.(content)
         }
       },
     },
-    page === 'scripture' && !!openedRange,
+    page === 'scripture' && !!group,
   )
 
   useEffect(() => {
@@ -628,7 +630,7 @@ export default function OperatorScreen({
         </div>
 
         {/* Multi-select bar (FreeShow-style: Ctrl/Cmd+click to select several, pin as one) */}
-        {!openedRange && selectedVerseKeys.size >= 2 && (
+        {!group && selectedVerseKeys.size >= 2 && (
           <div style={{ padding: '0 20px 10px 20px', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1B2318', border: '1px solid rgba(168,112,46,0.4)', borderRadius: 8, padding: '8px 12px' }}>
               <span style={{ fontSize: 12, color: '#A8702E' }}>{selectedVerseKeys.size} verses selected</span>
@@ -659,11 +661,11 @@ export default function OperatorScreen({
         {/* ALT: opened reading view (from a reference search or clicking a
             result) -- FreeShow/ProPresenter-style Next/Previous Verse
             navigation that crosses chapter boundaries automatically. */}
-        {openedRange ? (
+        {group ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 20px 20px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <button
-                onClick={() => setOpenedRange(null)}
+                onClick={() => scripturePresentation.closeGroup()}
                 style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '5px 12px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
               >
                 ← Back to Search
@@ -694,8 +696,8 @@ export default function OperatorScreen({
                   jump there (even outside the group). Shift+click to resize the group. Double-click to send everywhere.
                 </p>
                 {chapterVerses.map((v) => {
-                  const isInGroup = openedRange && v.verse >= openedRange.start && v.verse <= openedRange.end
-                  const isActive = activeVerseNum === v.verse
+                  const isInGroup = isViewingGroupChapter && v.verse >= group.startVerse && v.verse <= group.endVerse
+                  const isActive = activeVerse?.verse === v.verse
                   return (
                     <div
                       key={v.verse}
