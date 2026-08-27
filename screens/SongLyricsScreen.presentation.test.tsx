@@ -50,8 +50,12 @@ describe('Open Song -> set capacity -> see expected generated pages (Section 54)
 
     // At capacity 2, the 5-line Verse 1 produces 3 pages (2,2,1); the
     // first page shows lines one and two.
-    expect(screen.getByText('line one')).toBeInTheDocument()
-    expect(screen.getByText('line two')).toBeInTheDocument()
+    // "line one"/"line two" now legitimately appear in two places: the
+    // original slide list and the new Presentation Layout panel's
+    // manual-break editor -- both are correct; the point is the content
+    // exists at all, proving pagination worked.
+    expect(screen.getAllByText('line one').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('line two').length).toBeGreaterThan(0)
   })
 })
 
@@ -67,7 +71,11 @@ describe('Navigate final Verse page -> Next -> Chorus starts (Section 54, sectio
     // Verse 1 currently on page 1 (lines 1-4). Click the Chorus section
     // jump button directly to confirm boundary-correct navigation lands
     // exactly on Chorus content, never blended with Verse 1's leftover line.
-    fireEvent.click(screen.getByRole('button', { name: 'Chorus' }))
+    // Two "Chorus" buttons now exist: the new Presentation Layout
+    // panel's (renders first, requires an explicit Send click) and the
+    // original per-section jump button (renders second, sends to
+    // Preview on click) -- this test validates the original's behavior.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Chorus' })[1])
     const lastCall = onSendPreview.mock.calls[onSendPreview.mock.calls.length - 1]?.[0]
     expect(lastCall.lines.every((l: string) => l.startsWith('chorus'))).toBe(true)
   })

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song, type SongSlide, type LyricSection } from '../songModel'
 import { parseSongText, suggestTitleFromFilename } from '../song/import/SongTextParser'
 import { useSongAutoSend } from '../song/presentation/useSongAutoSend'
+import { SongPresentationLayoutPanel } from './SongPresentationLayoutPanel'
 import { newSongId, newSectionId, newArrangementId } from '../song/id'
 import type { DisplayContent } from './OutputStage'
 import type { PinnedItem } from '../pinModel'
@@ -980,6 +981,19 @@ ${simulatedInput}`)
                 </button>
               )}
             </div>
+
+            {/* ALT-STAGE5-2-1: new Presentation Layout panel -- Audience/
+                Foldback capacity, manual breaks, repeated-section-aware
+                jump, granular pinning, and Auto-Send, built directly on
+                the Stage 5.2 engine. Added alongside the existing slide
+                list, not replacing it. */}
+            <SongPresentationLayoutPanel
+              song={openedSong}
+              onSendPreview={onSendPreview}
+              onSendLive={onSendLive}
+              onPin={onPin}
+              autoSend={songAutoSend}
+            />
 
             {/* ALT-item-4: lines/slide moved up here, next to section jump buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>

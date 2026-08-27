@@ -55,15 +55,15 @@ describe('useSongPageNavigation (Section 49.18-21, 25)', () => {
     expect(result.current.currentPage?.sectionId).toBe('verse1')
   })
 
-  it('21 & 25. repeated Chorus occurrence navigation moves from occurrence 1 to occurrence 2 correctly', () => {
+  it('21 & 25. repeated Chorus occurrence navigation moves to a specific occurrence via jumpToSectionOccurrence', () => {
     const { pages } = makeSongAndPages()
     const { result } = renderHook(() => useSongPageNavigation(pages))
-    act(() => result.current.jumpToSection('chorus', 2))
+    act(() => result.current.jumpToSectionOccurrence('chorus', 2))
     expect(result.current.currentPage?.sectionId).toBe('chorus')
     expect(result.current.currentPage?.sectionOccurrence).toBe(2)
   })
 
-  it('jumpToSection defaults to occurrence 1 when unspecified', () => {
+  it('jumpToSection (semantic, relative-to-current) moves to the first Chorus occurrence when starting before any Chorus', () => {
     const { pages } = makeSongAndPages()
     const { result } = renderHook(() => useSongPageNavigation(pages))
     act(() => result.current.jumpToSection('chorus'))

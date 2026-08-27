@@ -16,12 +16,14 @@ export interface SongPageNavigation {
   currentPage: SongPresentationPage | null
   next(): void
   previous(): void
-  // ALT-STAGE5-2-PART24/25: jumps to the first page of a section
-  // occurrence. Defaults to occurrence 1 (the "primary"/first
-  // occurrence) when not specified -- the documented, predictable rule
-  // for a section-jump control that doesn't yet know which repetition
-  // the operator means.
-  jumpToSection(sectionId: string, occurrence?: number): void
+  // ALT-STAGE5-2-1-PART22-26: jumps to the NEXT occurrence of this
+  // section relative to the current position, wrapping to the first if
+  // none is later in the sequence -- see implementation comment below
+  // for the resolved ambiguity from the Stage 5.2 report.
+  jumpToSection(sectionId: string): void
+  // Explicit-occurrence jump, for callers (e.g. pin resolution) that
+  // need a SPECIFIC occurrence rather than "next relative to current."
+  jumpToSectionOccurrence(sectionId: string, occurrence: number): void
   hasNext: boolean
   hasPrevious: boolean
 }
@@ -42,8 +44,39 @@ export function useSongPageNavigation(pages: SongPresentationPage[]): SongPageNa
     setPageIndex((i) => Math.max(i - 1, 0))
   }, [])
 
+  // ALT-STAGE5-2-1-PART22-26: resolves the Stage 5.2 report's flagged
+  // ambiguity. A semantic section-jump now moves to the NEXT occurrence
+  // of that section RELATIVE TO THE CURRENT position in the arrangement
+  // sequence -- not always occurrence 1. If no later occurrence exists,
+  // wraps to the first. This is what makes "press Chorus" predictable
+  // during live worship: the operator always means "the next time this
+  // section comes up from here," never "restart at the first one."
   const jumpToSection = useCallback(
-    (sectionId: string, occurrence = 1) => {
+    (sectionId: string) => {
+      setPageIndex((currentIndex) => {
+        // The first page index of every occurrence of this section, in
+        // arrangement order.
+        const occurrenceStarts: number[] = []
+        let lastSeenOccurrence = -1
+        pages.forEach((p, i) => {
+          if (p.sectionId === sectionId && p.sectionOccurrence !== lastSeenOccurrence) {
+            occurrenceStarts.push(i)
+            lastSeenOccurrence = p.sectionOccurrence
+          }
+        })
+        if (occurrenceStarts.length === 0) return currentIndex
+        const next = occurrenceStarts.find((idx) => idx > currentIndex)
+        return next !== undefined ? next : occurrenceStarts[0] // wrap to first occurrence
+      })
+    },
+    [pages],
+  )
+
+  // ALT-STAGE5-2-1: explicit-occurrence jump, preserved for callers that
+  // genuinely need a specific occurrence (e.g. resolving a pin) rather
+  // than "next relative to current."
+  const jumpToSectionOccurrence = useCallback(
+    (sectionId: string, occurrence: number) => {
       const idx = pages.findIndex((p) => p.sectionId === sectionId && p.sectionOccurrence === occurrence)
       if (idx >= 0) setPageIndex(idx)
     },
@@ -56,6 +89,7 @@ export function useSongPageNavigation(pages: SongPresentationPage[]): SongPageNa
     next,
     previous,
     jumpToSection,
+    jumpToSectionOccurrence,
     hasNext: clampedIndex < pages.length - 1,
     hasPrevious: clampedIndex > 0,
   }
