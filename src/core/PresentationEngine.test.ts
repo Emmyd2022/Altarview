@@ -35,9 +35,12 @@ const TEST_SONG: Song = {
   isHymn: false,
   linesPerSlide: 1,
   sections: [
-    { label: 'Verse 1', lines: ['line one', 'line two', 'line three'] },
-    { label: 'Verse 2', lines: ['line four', 'line five', 'line six'] },
+    { id: 'sec-1', label: 'Verse 1', lines: ['line one', 'line two', 'line three'] },
+    { id: 'sec-2', label: 'Verse 2', lines: ['line four', 'line five', 'line six'] },
   ],
+  arrangements: [{ id: 'arr-1', name: 'Default', sectionIds: ['sec-1', 'sec-2'] }],
+  defaultArrangementId: 'arr-1',
+  metadata: { createdAt: 0, updatedAt: 0 },
 }
 
 function songSlide(slideIndex: number, lines: string[]): SongDisplayContent {

@@ -14,6 +14,8 @@ import { DEFAULT_THEMES, type ThemeDef } from './themeModel'
 import { DEFAULT_SONGS, type Song } from './songModel'
 import { getAppServices } from './core/AppServices'
 import { migratePinnedItems } from './core/pinMigration'
+import { migrateSongs } from './song/migration/songMigration'
+import { migrateSongPins } from './song/migration/songPinMigration'
 import { usePresentationEngine } from './core/PresentationEngine'
 import { getAllLoadedChapters, getAllLoadedVerses, addImportedChapter, addImportedVerses } from './bibleModel'
 import type { PinnedItem } from './pinModel'
@@ -296,7 +298,22 @@ export default function App() {
         services.bibleRepo.getAllVerses(),
       ])
       if (cancelled) return
-      if (storedSongs.length > 0) setSongs(storedSongs)
+      // ALT-STAGE5-PART24/25: legacy songs (pre-Stage-5, missing section
+      // IDs/arrangements/metadata, or with a weak Date.now()-based ID)
+      // are migrated here, once, idempotently -- an already-current song
+      // passes through unchanged. The migrated set is immediately
+      // re-saved so a song's generated ID stays stable from here on.
+      let migratedSongs = storedSongs
+      if (storedSongs.length > 0) {
+        const { songs: migrated, report: songReport } = migrateSongs(storedSongs as unknown[])
+        migratedSongs = migrated
+        setSongs(migrated)
+        if (songReport.migrated > 0) services.songRepo.saveAll(migrated)
+        if (songReport.failed.length > 0) {
+          // eslint-disable-next-line no-console
+          console.warn(`[Altarview] ${songReport.failed.length} song(s) could not be migrated and were dropped:`, songReport.failed)
+        }
+      }
       if (storedThemes.length > 0) setThemes(storedThemes)
       if (storedSessions.length > 0) setSessions(storedSessions)
       // ALT-STAGE4-2-PART15/16/17: legacy pins (pre-Stage-4.2, flat
@@ -307,14 +324,23 @@ export default function App() {
       // silently losing every other pin. The migrated set is
       // immediately re-saved, so this only ever runs once per pin.
       if (storedPinned.length > 0) {
-        const { items: migratedPinned, report } = migratePinnedItems(storedPinned as unknown[])
-        setPinned(migratedPinned)
-        if (report.migrated > 0 || report.failed.length > 0) {
-          services.pinnedRepo.replaceAll(migratedPinned)
+        const { items: structurallyMigratedPinned, report } = migratePinnedItems(storedPinned as unknown[])
+        // ALT-STAGE5-PART38/39/40: THEN, resolve legacy title-based Song
+        // pins to a stable songId against the (now-migrated) song
+        // library -- ambiguous/not-found pins are left as safe,
+        // functional title-only pins rather than guessed at.
+        const { pins: songIdResolvedPinned, report: songPinReport } = migrateSongPins(structurallyMigratedPinned, migratedSongs)
+        setPinned(songIdResolvedPinned)
+        if (report.migrated > 0 || report.failed.length > 0 || songPinReport.resolved > 0) {
+          services.pinnedRepo.replaceAll(songIdResolvedPinned)
         }
         if (report.failed.length > 0) {
           // eslint-disable-next-line no-console
           console.warn(`[Altarview] ${report.failed.length} pinned item(s) could not be migrated and were dropped:`, report.failed)
+        }
+        if (songPinReport.ambiguous.length > 0) {
+          // eslint-disable-next-line no-console
+          console.warn(`[Altarview] ${songPinReport.ambiguous.length} Song pin(s) matched more than one song by title and were left unresolved (still functional via title):`, songPinReport.ambiguous)
         }
       }
       if (activeThemeMeta) setActiveThemeId(activeThemeMeta)

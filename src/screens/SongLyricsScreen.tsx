@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song, type SongSlide } from '../songModel'
+import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song, type SongSlide, type LyricSection } from '../songModel'
+import { newSongId, newSectionId, newArrangementId } from '../song/id'
 import type { DisplayContent } from './OutputStage'
 import type { PinnedItem } from '../pinModel'
 import { useKeyboardShortcuts } from '../core/useKeyboardShortcuts'
@@ -405,7 +406,7 @@ export default function SongLyricsScreen({
       label: song.title,
       detail: slide.sectionLabel,
       createdAt: Date.now(),
-      target: { type: 'song', songTitle: song.title, songArtist: song.artist, songLines: slide.lines },
+      target: { type: 'song', songId: song.id, songTitle: song.title, songArtist: song.artist, songLines: slide.lines },
     })
   }
 
@@ -432,14 +433,20 @@ export default function SongLyricsScreen({
       return
     }
     setQuickEntryError('')
+    const sections: LyricSection[] = parsedPreview.map((s, i) => ({ id: newSectionId(), label: sectionLabelOverrides[i] ?? s.section, lines: s.lines }))
+    const arrangement = { id: newArrangementId(), name: 'Default', sectionIds: sections.map((sec) => sec.id) }
+    const now = Date.now()
     const newSong: Song = {
-      id: `qe-${Date.now()}`,
+      id: newSongId(),
       title: quickEntryTitle.trim(),
       artist: 'Quick entry',
       source: 'Imported',
       isHymn: false,
       linesPerSlide: 2,
-      sections: parsedPreview.map((s, i) => ({ label: sectionLabelOverrides[i] ?? s.section, lines: s.lines })),
+      sections,
+      arrangements: [arrangement],
+      defaultArrangementId: arrangement.id,
+      metadata: { createdAt: now, updatedAt: now, source: 'manual' },
     }
     setSongs((prev) => [...prev, newSong])
     setQuickEntryTitle('')
@@ -769,18 +776,26 @@ ${simulatedInput}`)
             if (!file) return
             const dotIndex = file.name.lastIndexOf('.')
             const baseName = dotIndex > 0 ? file.name.slice(0, dotIndex) : file.name
-            setSongs((prev) => [
-              ...prev,
-              {
-                id: `import-${Date.now()}`,
-                title: baseName,
-                artist: 'Imported file',
-                source: 'Imported',
-                isHymn: false,
-                linesPerSlide: 2,
-                sections: [{ label: 'Verse 1', lines: ['Lyrics not yet parsed -- edit via Quick Text Entry'] }],
-              },
-            ])
+            setSongs((prev) => {
+              const section: LyricSection = { id: newSectionId(), label: 'Verse 1', lines: ['Lyrics not yet parsed -- edit via Quick Text Entry'] }
+              const arrangement = { id: newArrangementId(), name: 'Default', sectionIds: [section.id] }
+              const now = Date.now()
+              return [
+                ...prev,
+                {
+                  id: newSongId(),
+                  title: baseName,
+                  artist: 'Imported file',
+                  source: 'Imported',
+                  isHymn: false,
+                  linesPerSlide: 2,
+                  sections: [section],
+                  arrangements: [arrangement],
+                  defaultArrangementId: arrangement.id,
+                  metadata: { createdAt: now, updatedAt: now, source: 'txt-import' },
+                },
+              ]
+            })
             e.target.value = ''
           }}
           style={{ display: 'none' }}
@@ -1275,7 +1290,35 @@ ${simulatedInput}`)
                         </button>
                         <button
                           onClick={() => {
-                            setSongs((prev) => [...prev, { ...song, id: `dup-${Date.now()}`, title: `${song.title} (Copy)` }])
+                            // ALT-STAGE5-PART8/49: Duplicate must create a
+                            // genuinely independent Song -- new song ID,
+                            // AND new section IDs (previously reused the
+                            // original section ids, which would let an
+                            // arrangement/pin on the duplicate accidentally
+                            // reference the original's sections). The
+                            // arrangement is rebuilt to reference the new
+                            // section ids.
+                            const newSections: LyricSection[] = song.sections.map((sec) => ({ ...sec, id: newSectionId() }))
+                            const oldToNewSectionId = new Map(song.sections.map((sec, i) => [sec.id, newSections[i].id]))
+                            const newArrangements = song.arrangements.map((arr) => ({
+                              id: newArrangementId(),
+                              name: arr.name,
+                              sectionIds: arr.sectionIds.map((sid) => oldToNewSectionId.get(sid) ?? sid),
+                            }))
+                            const oldToNewArrangementId = new Map(song.arrangements.map((arr, i) => [arr.id, newArrangements[i].id]))
+                            const now = Date.now()
+                            setSongs((prev) => [
+                              ...prev,
+                              {
+                                ...song,
+                                id: newSongId(),
+                                title: `${song.title} (Copy)`,
+                                sections: newSections,
+                                arrangements: newArrangements,
+                                defaultArrangementId: oldToNewArrangementId.get(song.defaultArrangementId) ?? newArrangements[0]?.id ?? '',
+                                metadata: { ...song.metadata, createdAt: now, updatedAt: now },
+                              },
+                            ])
                             setMoreOptionsForId(null)
                           }}
                           style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '7px 12px', fontSize: 11, color: '#EDEAE0', cursor: 'pointer', fontFamily: 'inherit' }}

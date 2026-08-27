@@ -8,6 +8,7 @@ import SermonSlidesScreen from './SermonSlidesScreen'
 import TimerScreen from './TimerScreen'
 import UpNextScreen from './UpNextScreen'
 import type { Song } from '../songModel'
+import { buildSlides } from '../songModel'
 import type { ServiceSession } from '../sessionModel'
 import { newPinId, type PinnedItem, type PinTarget } from '../pinModel'
 import { parseReference, getVerseRange, chapterVerseCount, nextVerseRef, previousVerseRef, rangeLabel, type VerseRef } from '../bibleModel'
@@ -424,8 +425,12 @@ export default function OperatorScreen({
       openReference({ book: bookName, chapter: ref.startChapter, startVerse: ref.startVerse, endVerse: ref.endVerse })
     } else if (p.target.type === 'song') {
       onChangePage('songs')
-      const songTitle = p.target.songTitle
-      const song = songs?.find((s) => s.title === songTitle)
+      // ALT-STAGE5-PART39: prefer the stable songId when present (every
+      // pin created from Stage 5 onward always has one); fall back to
+      // title lookup only for a legacy pin that migration couldn't
+      // safely resolve (ambiguous or not-found at migration time).
+      const target = p.target
+      const song = target.songId ? songs?.find((s) => s.id === target.songId) : songs?.find((s) => s.title === target.songTitle)
       if (song) setSongOpenRequest({ songId: song.id })
     } else if (p.target.type === 'slide') {
       onChangePage('slides')
@@ -454,7 +459,18 @@ export default function OperatorScreen({
         content = { type: 'verse', ref: `${bookName} ${ref.startChapter}:${ref.startVerse}`, translation: ref.translationId, text: v.text, book: bookName, chapter: ref.startChapter, verse: ref.startVerse }
       }
     } else if (p.target.type === 'song') {
-      content = { type: 'song', title: p.target.songTitle, artist: p.target.songArtist ?? '', lines: p.target.songLines }
+      // ALT-STAGE5-PART39: prefer the LIVE song's current first-section
+      // lyrics via songId (accurate even if the song was edited since
+      // being pinned) over the cached songLines snapshot, which is kept
+      // only as a fallback for an unresolved legacy pin.
+      const target = p.target
+      const liveSong = target.songId ? songs?.find((s) => s.id === target.songId) : undefined
+      if (liveSong) {
+        const slides = buildSlides(liveSong)
+        const firstSlide = slides[0]
+        if (firstSlide) content = { type: 'song', title: liveSong.title, artist: liveSong.artist, lines: firstSlide.lines, songId: liveSong.id, slideIndex: 0 }
+      }
+      if (!content) content = { type: 'song', title: target.songTitle, artist: target.songArtist ?? '', lines: target.songLines }
     } else if (p.target.type === 'slide') {
       content = { type: 'slide', text: p.target.slideText }
     }

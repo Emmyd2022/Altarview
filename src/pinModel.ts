@@ -24,10 +24,17 @@ export interface ScripturePinTarget {
 
 // ALT-STAGE4-2-PART12B: Song pins are preserved close to their current
 // shape (title/artist/lines) -- Stage 5's Song Engine will introduce a
-// stable songId; this stage does not invent that model early, per the
-// brief's explicit instruction not to build it here.
+// ALT-STAGE5-PART39: Stage 4.2 deliberately deferred stable Song
+// identity ("this stage does not invent that model early"). Now that
+// Stage 5 provides real stable Song IDs, `songId` is the canonical
+// identity -- `songTitle`/`songArtist`/`songLines` remain as a display/
+// fallback label and legacy-compatibility data, never as identity a new
+// pin relies on to resolve itself. Optional only so already-persisted
+// pre-Stage-5 pins (title-only) still type-check before migration runs;
+// every NEW pin created from this stage onward always populates it.
 export interface SongPinTarget {
   type: 'song'
+  songId?: string
   songTitle: string
   songArtist?: string
   songLines: string[]
