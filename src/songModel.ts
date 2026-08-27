@@ -6,6 +6,8 @@
 // section's first line.
 
 import { newSongId, newSectionId, newArrangementId } from './song/id'
+import { generateSongPresentationPages } from './song/presentation/pagination'
+import { resolveLayoutCapacity, themeDefaultCapacity } from './song/presentation/themeLayoutDefaults'
 
 // ALT-STAGE5-PART11: each section now has its own stable identity,
 // independent of its label -- two sections can share a label (or a
@@ -78,25 +80,45 @@ export interface SongSlide {
 // The core algorithm: chunk each section's lines into groups of
 // `linesPerSlide`, never spilling into the next section. A 5-line
 // section at 2 lines/slide -> [[l1,l2],[l3,l4],[l5]].
+// ALT-STAGE5-2-PART56: buildSlides() is now a thin COMPATIBILITY
+// WRAPPER around the new Song Presentation Layout Engine
+// (src/song/presentation/pagination.ts) -- Option A from the brief
+// ("replace buildSlides() internally... while maintaining compatibility
+// API"). Every existing call site (click/double-click/Next/Previous
+// Slide, Preview/Live/Stage sends, keyboard shortcuts, section-jump)
+// continues to work completely unchanged; the new engine is now the
+// single authoritative pagination path underneath. `song.linesPerSlide`
+// is treated as the "song override" input into the new engine's
+// theme-default/song-override precedence (Section 33's "canonical
+// ownership changes" while UX stays the same) -- it is READ here, never
+// re-derived or written back as something new.
 export function buildSlides(song: Song): SongSlide[] {
-  const slides: SongSlide[] = []
-  song.sections.forEach((section, sectionIndex) => {
-    const chunks: string[][] = []
-    for (let i = 0; i < section.lines.length; i += song.linesPerSlide) {
-      chunks.push(section.lines.slice(i, i + song.linesPerSlide))
-    }
-    chunks.forEach((chunk, slideIndexInSection) => {
-      slides.push({
-        songId: song.id,
-        sectionLabel: section.label,
-        sectionIndex,
-        slideIndexInSection,
-        totalSlidesInSection: chunks.length,
-        lines: chunk,
-      })
-    })
-  })
-  return slides
+  const arrangement = song.arrangements.find((a) => a.id === song.defaultArrangementId) ?? song.arrangements[0]
+  if (!arrangement) return []
+
+  const resolved = resolveLayoutCapacity(themeDefaultCapacity(undefined), song.linesPerSlide)
+  const pages = generateSongPresentationPages(song, arrangement, { id: 'legacy-compat', maxLinesPerPage: resolved.maxLinesPerPage })
+
+  // ALT-STAGE5-2-PART56: sectionIndex must remain "this section's
+  // position in song.sections" for the existing section-jump UI, which
+  // was built against that exact semantic -- not an arrangement-
+  // sequence position.
+  const sectionIndexById = new Map(song.sections.map((s, i) => [s.id, i]))
+  // Pages-per-occurrence count, for totalSlidesInSection compatibility.
+  const pagesPerOccurrence = new Map<string, number>()
+  for (const p of pages) {
+    const key = `${p.sectionId}|${p.sectionOccurrence}`
+    pagesPerOccurrence.set(key, (pagesPerOccurrence.get(key) ?? 0) + 1)
+  }
+
+  return pages.map((p) => ({
+    songId: p.songId,
+    sectionLabel: p.sectionLabel,
+    sectionIndex: sectionIndexById.get(p.sectionId) ?? 0,
+    slideIndexInSection: p.pageIndexWithinSection,
+    totalSlidesInSection: pagesPerOccurrence.get(`${p.sectionId}|${p.sectionOccurrence}`) ?? 1,
+    lines: p.lines,
+  }))
 }
 
 // Jump straight to the first slide of a given section (e.g. "go to

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song, type SongSlide, type LyricSection } from '../songModel'
 import { parseSongText, suggestTitleFromFilename } from '../song/import/SongTextParser'
+import { useSongAutoSend } from '../song/presentation/useSongAutoSend'
+import { SongPresentationLayoutPanel } from './SongPresentationLayoutPanel'
 import { newSongId, newSectionId, newArrangementId } from '../song/id'
 import type { DisplayContent } from './OutputStage'
 import type { PinnedItem } from '../pinModel'
@@ -190,6 +192,10 @@ export default function SongLyricsScreen({
   // clicked, for highlighting and for the quick-action row.
   const [openedSongId, setOpenedSongId] = useState<string | null>(null)
   const [activeSlideKey, setActiveSlideKey] = useState<{ songId: string; slideIndex: number } | null>(null)
+  // ALT-STAGE5-2-PART31: one Auto-Send instance for this (Audience Live)
+  // destination -- deliberately does not affect Foldback, matching
+  // Section 30/38's "Audience Auto-Send does not force Foldback."
+  const songAutoSend = useSongAutoSend(false)
   const [query, setQuery] = useState('')
   const [bulkSelect, setBulkSelect] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -333,6 +339,11 @@ export default function SongLyricsScreen({
     setActiveSlideKey({ songId: song.id, slideIndex: idx })
     const content = slideToContent(song, slide.lines, idx)
     onSendPreview?.(content)
+    // ALT-STAGE5-2-PART29-31: Auto-Send -- when enabled, navigating to a
+    // slide also sends it to Live automatically, matching Scripture's
+    // established Auto-Send user experience. Off by default; toggled via
+    // the visible control in the opened-song toolbar.
+    if (songAutoSend.enabled) onSendLive?.(content)
   }
 
   function doubleClickSlide(song: Song, slide: SongSlide, idx: number) {
@@ -971,6 +982,19 @@ ${simulatedInput}`)
               )}
             </div>
 
+            {/* ALT-STAGE5-2-1: new Presentation Layout panel -- Audience/
+                Foldback capacity, manual breaks, repeated-section-aware
+                jump, granular pinning, and Auto-Send, built directly on
+                the Stage 5.2 engine. Added alongside the existing slide
+                list, not replacing it. */}
+            <SongPresentationLayoutPanel
+              song={openedSong}
+              onSendPreview={onSendPreview}
+              onSendLive={onSendLive}
+              onPin={onPin}
+              autoSend={songAutoSend}
+            />
+
             {/* ALT-item-4: lines/slide moved up here, next to section jump buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }} title="Lines per slide">
@@ -983,6 +1007,31 @@ ${simulatedInput}`)
                 />
                 <span style={{ fontSize: 10, color: '#8F9885' }}>lines/slide</span>
               </div>
+              <div style={{ width: 1, height: 18, background: '#2A331F' }} />
+              {/* ALT-STAGE5-2-PART31: compact, obvious-when-enabled
+                  Auto-Send control -- same visual language as the rest
+                  of the toolbar, no separate Settings trip required. */}
+              <button
+                onClick={() => songAutoSend.toggle()}
+                title="When on, navigating to a slide also sends it to Live automatically"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: songAutoSend.enabled ? 'rgba(111,201,138,0.14)' : 'transparent',
+                  border: songAutoSend.enabled ? '1px solid rgba(111,201,138,0.4)' : '1px solid #2A331F',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: songAutoSend.enabled ? '#6FC98A' : '#8F9885',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: songAutoSend.enabled ? '#6FC98A' : '#3A4430', flexShrink: 0 }} />
+                Auto-Send {songAutoSend.enabled ? 'ON' : 'OFF'}
+              </button>
               <div style={{ width: 1, height: 18, background: '#2A331F' }} />
               {openedSong.sections.map((sec, idx) => (
                 <button

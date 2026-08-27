@@ -32,12 +32,26 @@ export interface ScripturePinTarget {
 // pin relies on to resolve itself. Optional only so already-persisted
 // pre-Stage-5 pins (title-only) still type-check before migration runs;
 // every NEW pin created from this stage onward always populates it.
+// ALT-STAGE5-2-PART27/28: `lyricPosition`, when present, pins a
+// specific SECTION or PRESENTATION-PAGE-adjacent spot within the song
+// -- deliberately a SEMANTIC lyric position (section + line), never a
+// page number, per Section 28's explicit warning that page numbers
+// change when layout changes. Omitted entirely = a whole-song pin
+// (unchanged, existing behavior). Present with lineIndexInSection
+// undefined = a whole-SECTION pin. Present with a line index = a
+// specific lyric-position pin, resolved into whatever page it falls on
+// under the currently active layout at open time.
 export interface SongPinTarget {
   type: 'song'
   songId?: string
   songTitle: string
   songArtist?: string
   songLines: string[]
+  lyricPosition?: {
+    sectionId: string
+    sectionOccurrence: number
+    lineIndexInSection?: number
+  }
 }
 
 // ALT-STAGE4-2-PART12C/13: `slideText` remains the identity for now (no

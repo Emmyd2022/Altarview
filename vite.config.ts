@@ -28,6 +28,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/vitest.setup.ts',
+    // ALT-VERIFICATION-V1-PART6: Playwright's e2e/*.spec.ts files use a
+    // different test runner (@playwright/test) and must never be picked
+    // up by Vitest's own discovery -- they share the .spec.ts naming
+    // convention but are not compatible test frameworks.
+    exclude: ['**/node_modules/**', '**/e2e/**'],
     coverage: {
       provider: 'v8',
       include: ['src/core/**', 'src/hooks/**'],
