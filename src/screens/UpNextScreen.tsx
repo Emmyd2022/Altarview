@@ -257,7 +257,7 @@ export default function UpNextScreen({
             </button>
             {onPin && (
               <button
-                onClick={() => onPin({ type: 'up-next', label: style.name, detail: `${durationSeconds}s`, upNextStyleId: style.id })}
+                onClick={() => onPin({ label: style.name, detail: `${durationSeconds}s`, createdAt: Date.now(), target: { type: 'up-next', styleId: style.id } })}
                 title="Pin this style for quick access"
                 style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 7, padding: '9px 16px', fontSize: 12, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
               >

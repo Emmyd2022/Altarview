@@ -175,7 +175,7 @@ export default function TimerScreen({
             </button>
             {onPin && (
               <button
-                onClick={() => onPin({ type: 'timer', label: `${Math.round(totalSeconds / 60)} min timer`, timerMinutes: Math.round(totalSeconds / 60) })}
+                onClick={() => onPin({ label: `${Math.round(totalSeconds / 60)} min timer`, createdAt: Date.now(), target: { type: 'timer', minutes: Math.round(totalSeconds / 60) } })}
                 title="Pin this duration for quick access"
                 style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
               >

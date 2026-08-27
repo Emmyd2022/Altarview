@@ -207,7 +207,7 @@ export default function SermonSlidesScreen({
             )}
             {onPin && (
               <button
-                onClick={() => onPin({ type: 'slide', label: `Slide ${slides.findIndex((s) => s.id === activeId) + 1}`, detail: activeSlide.text.split('\n')[0].slice(0, 30), slideText: activeSlide.text })}
+                onClick={() => onPin({ label: `Slide ${slides.findIndex((s) => s.id === activeId) + 1}`, detail: activeSlide.text.split('\n')[0].slice(0, 30), createdAt: Date.now(), target: { type: 'slide', slideText: activeSlide.text } })}
                 title="Pin this slide"
                 style={{
                   background: 'transparent',

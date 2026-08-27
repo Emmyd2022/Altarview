@@ -13,6 +13,7 @@ import ThemesScreen from './screens/ThemesScreen'
 import { DEFAULT_THEMES, type ThemeDef } from './themeModel'
 import { DEFAULT_SONGS, type Song } from './songModel'
 import { getAppServices } from './core/AppServices'
+import { migratePinnedItems } from './core/pinMigration'
 import { usePresentationEngine } from './core/PresentationEngine'
 import { getAllLoadedChapters, getAllLoadedVerses, addImportedChapter, addImportedVerses } from './bibleModel'
 import type { PinnedItem } from './pinModel'
@@ -298,7 +299,24 @@ export default function App() {
       if (storedSongs.length > 0) setSongs(storedSongs)
       if (storedThemes.length > 0) setThemes(storedThemes)
       if (storedSessions.length > 0) setSessions(storedSessions)
-      if (storedPinned.length > 0) setPinned(storedPinned)
+      // ALT-STAGE4-2-PART15/16/17: legacy pins (pre-Stage-4.2, flat
+      // verseRef-string shape) are migrated to the new discriminated-
+      // union `target` shape here, once, on load. A pin that can't be
+      // migrated (malformed/unparseable legacy reference) is dropped
+      // with a console warning rather than crashing the whole load or
+      // silently losing every other pin. The migrated set is
+      // immediately re-saved, so this only ever runs once per pin.
+      if (storedPinned.length > 0) {
+        const { items: migratedPinned, report } = migratePinnedItems(storedPinned as unknown[])
+        setPinned(migratedPinned)
+        if (report.migrated > 0 || report.failed.length > 0) {
+          services.pinnedRepo.replaceAll(migratedPinned)
+        }
+        if (report.failed.length > 0) {
+          // eslint-disable-next-line no-console
+          console.warn(`[Altarview] ${report.failed.length} pinned item(s) could not be migrated and were dropped:`, report.failed)
+        }
+      }
       if (activeThemeMeta) setActiveThemeId(activeThemeMeta)
       // ALT-STAGE2-PART5: repopulate bibleModel's in-memory Map with
       // whatever was previously imported, so imported translations

@@ -402,12 +402,10 @@ export default function SongLyricsScreen({
 
   function pinSlide(song: Song, slide: SongSlide, idx: number) {
     onPin?.({
-      type: 'song',
       label: song.title,
       detail: slide.sectionLabel,
-      songTitle: song.title,
-      songArtist: song.artist,
-      songLines: slide.lines,
+      createdAt: Date.now(),
+      target: { type: 'song', songTitle: song.title, songArtist: song.artist, songLines: slide.lines },
     })
   }
 

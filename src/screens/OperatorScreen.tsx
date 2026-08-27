@@ -9,7 +9,7 @@ import TimerScreen from './TimerScreen'
 import UpNextScreen from './UpNextScreen'
 import type { Song } from '../songModel'
 import type { ServiceSession } from '../sessionModel'
-import { newPinId, type PinnedItem } from '../pinModel'
+import { newPinId, type PinnedItem, type PinTarget } from '../pinModel'
 import { parseReference, getVerseRange, chapterVerseCount, nextVerseRef, previousVerseRef, rangeLabel, type VerseRef } from '../bibleModel'
 import { scriptureEngine } from '../scripture/services/ScriptureEngine'
 import { useKeyboardShortcuts } from '../core/useKeyboardShortcuts'
@@ -357,26 +357,49 @@ export default function OperatorScreen({
   const [dragOverPinIdx, setDragOverPinIdx] = useState<number | null>(null)
 
   function isPinned(v: Verse) {
-    return pinned.some((p) => p.type === 'verse' && p.verseRef === v.ref && p.verseTranslation === v.translation)
+    return pinned.some((p) => p.target.type === 'scripture' && matchesVerseRef(p.target.reference, v))
+  }
+
+  // ALT-STAGE4-2-PART6: compares a pinned Scripture target's structured
+  // reference against a currently-displayed search-result verse, by
+  // resolving the verse's own display ref through the canonical parser --
+  // never by comparing display strings directly.
+  function matchesVerseRef(ref: { translationId: string; bookId: string; startChapter: number; startVerse: number; endChapter: number; endVerse: number }, v: Verse): boolean {
+    const parsed = parseReference(v.ref)
+    if (!parsed) return false
+    const bookId = findBookIdByName(parsed.book) ?? parsed.book.toLowerCase()
+    return (
+      ref.translationId.toLowerCase() === v.translation.toLowerCase() &&
+      ref.bookId === bookId &&
+      ref.startChapter === parsed.chapter &&
+      ref.startVerse === parsed.startVerse &&
+      ref.endVerse === (parsed.endVerse === -1 ? parsed.startVerse : parsed.endVerse)
+    )
   }
 
   function togglePin(v: Verse) {
-    setPinned((prev) =>
-      isPinned(v)
-        ? prev.filter((p) => !(p.type === 'verse' && p.verseRef === v.ref && p.verseTranslation === v.translation))
-        : [
-            ...prev,
-            {
-              id: newPinId(),
-              type: 'verse',
-              label: v.ref,
-              detail: v.translation,
-              verseRef: v.ref,
-              verseTranslation: v.translation,
-              verseText: v.text,
-            },
-          ],
-    )
+    setPinned((prev) => {
+      if (isPinned(v)) {
+        return prev.filter((p) => !(p.target.type === 'scripture' && matchesVerseRef(p.target.reference, v)))
+      }
+      const parsed = parseReference(v.ref)
+      const bookId = parsed ? findBookIdByName(parsed.book) ?? parsed.book.toLowerCase() : ''
+      if (!parsed || !bookId) return prev
+      const endVerse = parsed.endVerse === -1 ? parsed.startVerse : parsed.endVerse
+      return [
+        ...prev,
+        {
+          id: newPinId(),
+          label: v.ref,
+          detail: v.translation,
+          createdAt: Date.now(),
+          target: {
+            type: 'scripture',
+            reference: { translationId: v.translation, bookId, startChapter: parsed.chapter, startVerse: parsed.startVerse, endChapter: parsed.chapter, endVerse },
+          },
+        },
+      ]
+    })
   }
 
   function pinItem(item: Omit<PinnedItem, 'id'>) {
@@ -389,22 +412,27 @@ export default function OperatorScreen({
 
   // ALT: Open switches to the item's page and opens it there, without
   // sending anything anywhere.
+  // ALT-STAGE4-2-PART9: Scripture Open now reconstructs the actual
+  // reading view via openReference (structured PassageReference), rather
+  // than just pre-filling the search box with a display string -- this
+  // was a real gap in the pre-Stage-4.2 behavior.
   function openPinnedItem(p: PinnedItem) {
-    if (p.type === 'verse') {
+    if (p.target.type === 'scripture') {
       onChangePage('scripture')
-      if (p.verseRef) setQuery(p.verseRef)
-    } else if (p.type === 'song') {
+      const ref = p.target.reference
+      const bookName = scriptureEngine.getBook(ref.bookId)?.name ?? ref.bookId
+      openReference({ book: bookName, chapter: ref.startChapter, startVerse: ref.startVerse, endVerse: ref.endVerse })
+    } else if (p.target.type === 'song') {
       onChangePage('songs')
-      if (p.songTitle) {
-        const song = songs?.find((s) => s.title === p.songTitle)
-        if (song) setSongOpenRequest({ songId: song.id })
-      }
-    } else if (p.type === 'slide') {
+      const songTitle = p.target.songTitle
+      const song = songs?.find((s) => s.title === songTitle)
+      if (song) setSongOpenRequest({ songId: song.id })
+    } else if (p.target.type === 'slide') {
       onChangePage('slides')
-      if (p.slideText) setSlideOpenRequest(p.slideText)
-    } else if (p.type === 'timer') {
+      setSlideOpenRequest(p.target.slideText)
+    } else if (p.target.type === 'timer') {
       onChangePage('timer')
-    } else if (p.type === 'up-next') {
+    } else if (p.target.type === 'up-next') {
       onChangePage('up-next')
     }
   }
@@ -414,23 +442,21 @@ export default function OperatorScreen({
   function sendPinnedItem(p: PinnedItem) {
     openPinnedItem(p)
     let content: DisplayContent | null = null
-    if (p.type === 'verse' && p.verseRef && p.verseTranslation && p.verseText) {
-      // ALT-fix: Send should only push the FIRST verse of a pinned group,
-      // not the whole combined range -- re-fetch just that one verse
-      // rather than using the stored (combined) text.
-      const parsed = parseReference(p.verseRef)
-      if (parsed) {
-        const firstVerse = getVerseRange(parsed.book, parsed.chapter, parsed.startVerse, parsed.startVerse, p.verseTranslation)
-        content = firstVerse[0]
-          ? { type: 'verse', ref: rangeLabel(parsed.book, parsed.chapter, parsed.startVerse, parsed.startVerse), translation: p.verseTranslation, text: firstVerse[0].text }
-          : { type: 'verse', ref: p.verseRef, translation: p.verseTranslation, text: p.verseText }
-      } else {
-        content = { type: 'verse', ref: p.verseRef, translation: p.verseTranslation, text: p.verseText }
+    if (p.target.type === 'scripture') {
+      // ALT-STAGE4-2-PART10/20: Send resolves the FIRST verse of the
+      // pinned Group directly through the Scripture Engine, using the
+      // structured reference -- no string round-trip, no re-parsing a
+      // formatted display label.
+      const ref = p.target.reference
+      const v = scriptureEngine.getVerse(ref.translationId, ref.bookId, ref.startChapter, ref.startVerse)
+      const bookName = scriptureEngine.getBook(ref.bookId)?.name ?? ref.bookId
+      if (v) {
+        content = { type: 'verse', ref: `${bookName} ${ref.startChapter}:${ref.startVerse}`, translation: ref.translationId, text: v.text, book: bookName, chapter: ref.startChapter, verse: ref.startVerse }
       }
-    } else if (p.type === 'song' && p.songTitle && p.songLines) {
-      content = { type: 'song', title: p.songTitle, artist: p.songArtist ?? '', lines: p.songLines }
-    } else if (p.type === 'slide' && p.slideText) {
-      content = { type: 'slide', text: p.slideText }
+    } else if (p.target.type === 'song') {
+      content = { type: 'song', title: p.target.songTitle, artist: p.target.songArtist ?? '', lines: p.target.songLines }
+    } else if (p.target.type === 'slide') {
+      content = { type: 'slide', text: p.target.slideText }
     }
     if (content) {
       onSendPreviewContent?.(content)
@@ -640,8 +666,24 @@ export default function OperatorScreen({
                   const picked = filtered.filter((v) => selectedVerseKeys.has(v.ref))
                   if (picked.length === 0) return
                   const combinedRef = picked.map((v) => v.ref).join('; ')
-                  const combinedText = picked.map((v) => v.text).join(' ')
-                  pinItem({ type: 'verse', label: combinedRef, detail: picked[0].translation, verseRef: combinedRef, verseTranslation: picked[0].translation, verseText: combinedText })
+                  // ALT-STAGE4-2-PART6: build a structured reference from
+                  // the first selected verse (book/chapter), spanning the
+                  // min-to-max verse number among the selection -- the
+                  // stored identity, not the display label.
+                  const first = parseReference(picked[0].ref)
+                  const bookId = first ? findBookIdByName(first.book) : null
+                  if (first && bookId) {
+                    const verseNums = picked.map((v) => parseReference(v.ref)?.startVerse ?? first.startVerse)
+                    pinItem({
+                      label: combinedRef,
+                      detail: picked[0].translation,
+                      createdAt: Date.now(),
+                      target: {
+                        type: 'scripture',
+                        reference: { translationId: picked[0].translation, bookId, startChapter: first.chapter, startVerse: Math.min(...verseNums), endChapter: first.chapter, endVerse: Math.max(...verseNums) },
+                      },
+                    })
+                  }
                   setSelectedVerseKeys(new Set())
                 }}
                 style={{ background: '#A8702E', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, color: '#10160F', cursor: 'pointer', fontFamily: 'inherit' }}
@@ -674,8 +716,16 @@ export default function OperatorScreen({
               <div style={{ fontSize: 12, color: '#8F9885' }}>({translation})</div>
               <button
                 onClick={() => {
-                  if (openedVerses.length === 0) return
-                  pinItem({ type: 'verse', label: openedLabel, detail: translation, verseRef: openedLabel, verseTranslation: translation, verseText: openedCombinedText })
+                  if (openedVerses.length === 0 || !group) return
+                  // ALT-STAGE4-2-PART6/8: pins the structured Group
+                  // directly -- no re-parsing openedLabel, and this is
+                  // always the fixed Group value, never the Active Verse.
+                  pinItem({
+                    label: openedLabel,
+                    detail: translation,
+                    createdAt: Date.now(),
+                    target: { type: 'scripture', reference: { translationId: group.translationId, bookId: group.bookId, startChapter: group.chapter, startVerse: group.startVerse, endChapter: group.chapter, endVerse: group.endVerse } },
+                  })
                 }}
                 title="Pin this passage"
                 style={{ background: 'transparent', border: '1px solid #2A331F', borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#8F9885', cursor: 'pointer', fontFamily: 'inherit' }}
@@ -961,7 +1011,7 @@ export default function OperatorScreen({
                     cursor: 'grab',
                   }}
                 >
-                  <PinTypeIcon type={p.type} />
+                  <PinTypeIcon type={p.target.type} />
                   <span style={{ fontSize: 11, color: '#EDEAE0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {p.label} {p.detail && <span style={{ color: '#3A4430' }}>({p.detail})</span>}
                   </span>
@@ -972,7 +1022,7 @@ export default function OperatorScreen({
                   >
                     Open
                   </button>
-                  {(p.type === 'verse' || p.type === 'song' || p.type === 'slide') && (
+                  {(p.target.type === 'scripture' || p.target.type === 'song' || p.target.type === 'slide') && (
                     <button
                       onClick={() => sendPinnedItem(p)}
                       title="Send to Preview + Live + Stage, and open this page"
@@ -1403,13 +1453,14 @@ function TopBarLinkBtn({ onClick, label }: { onClick: () => void; label: string 
   )
 }
 
-function PinTypeIcon({ type }: { type: PinnedItem['type'] }) {
-  const icons: Record<PinnedItem['type'], { glyph: string; color: string }> = {
-    verse: { glyph: '✦', color: '#A8702E' },
+function PinTypeIcon({ type }: { type: PinTarget['type'] }) {
+  const icons: Record<PinTarget['type'], { glyph: string; color: string }> = {
+    scripture: { glyph: '✦', color: '#A8702E' },
     song: { glyph: '♪', color: '#7BAFD4' },
     slide: { glyph: '▤', color: '#8F9885' },
     timer: { glyph: '⏱', color: '#C97A4A' },
     'up-next': { glyph: '▶', color: '#6FC98A' },
+    media: { glyph: '▣', color: '#C77DBB' },
   }
   const { glyph, color } = icons[type]
   return <span style={{ fontSize: 11, color, flexShrink: 0, width: 12, textAlign: 'center' }}>{glyph}</span>
