@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { buildSlides, firstSlideIndexForSection, DEFAULT_SONGS, type Song, type SongSlide, type LyricSection } from '../songModel'
+import { parseSongText, suggestTitleFromFilename } from '../song/import/SongTextParser'
 import { newSongId, newSectionId, newArrangementId } from '../song/id'
 import type { DisplayContent } from './OutputStage'
 import type { PinnedItem } from '../pinModel'
@@ -48,29 +49,13 @@ const MERGE_CANDIDATES: MergeCandidate[] = [
 ]
 
 // ALT-009: quick text entry parsing -- splits on [Section] markers.
+// ALT-STAGE5-1-PART59: now a thin wrapper around the shared domain
+// parser (src/song/import/SongTextParser.ts) instead of a second,
+// separate parsing implementation -- Quick Text Entry and TXT import
+// both feed the SAME parser. Return shape kept identical to before so
+// nothing downstream in this file needs to change.
 function parseQuickEntry(text: string): { section: string; lines: string[] }[] {
-  if (!text.trim()) return []
-  const hasBracketMarkers = /\[[^\]]+\]/.test(text)
-  if (hasBracketMarkers) {
-    const parts = text.split(/\[([^\]]+)\]/).filter((s) => s.trim() !== '')
-    const result: { section: string; lines: string[] }[] = []
-    for (let i = 0; i < parts.length; i += 2) {
-      const section = parts[i]?.trim()
-      const body = parts[i + 1]?.trim()
-      if (section && body) {
-        result.push({ section, lines: body.split('\n').map((l) => l.trim()).filter(Boolean) })
-      }
-    }
-    return result
-  }
-  // ALT-fix: most pasted lyrics have no [Section] markers at all -- fall
-  // back to treating blank-line-separated paragraphs as sections, rather
-  // than silently producing zero lyrics.
-  const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
-  return paragraphs.map((p, i) => ({
-    section: paragraphs.length > 1 ? `Verse ${i + 1}` : 'Verse 1',
-    lines: p.split('\n').map((l) => l.trim()).filter(Boolean),
-  }))
+  return parseSongText(text).map((s) => ({ section: s.suggestedLabel, lines: s.lines }))
 }
 
 type LibraryTab = 'All Songs' | 'Hymns'
@@ -764,38 +749,38 @@ ${simulatedInput}`)
           </div>
         )}
 
-        {/* ALT-fix: Import Song now opens the OS file dialog directly on
-            one click (via a hidden input + ref), instead of showing a
-            visible intermediate panel the user had to click again. */}
+        {/* ALT-STAGE5-1-PART7/29/59: Import Song now actually reads and
+            parses the file's real content (via the same shared
+            SongTextParser Quick Text Entry uses) and opens it in the
+            SAME review panel -- previously this silently committed a
+            placeholder song straight to the library with no parsing and
+            no review at all, violating "no auto-save on import."
+            Filename suggests a title (editable); empty files are
+            rejected with no song created; a real read failure shows a
+            clear error rather than crashing. */}
         <input
           ref={importInputRef}
           type="file"
           accept=".txt,.pdf,.docx"
-          onChange={(e) => {
+          onChange={async (e) => {
             const file = e.target.files?.[0]
             if (!file) return
-            const dotIndex = file.name.lastIndexOf('.')
-            const baseName = dotIndex > 0 ? file.name.slice(0, dotIndex) : file.name
-            setSongs((prev) => {
-              const section: LyricSection = { id: newSectionId(), label: 'Verse 1', lines: ['Lyrics not yet parsed -- edit via Quick Text Entry'] }
-              const arrangement = { id: newArrangementId(), name: 'Default', sectionIds: [section.id] }
-              const now = Date.now()
-              return [
-                ...prev,
-                {
-                  id: newSongId(),
-                  title: baseName,
-                  artist: 'Imported file',
-                  source: 'Imported',
-                  isHymn: false,
-                  linesPerSlide: 2,
-                  sections: [section],
-                  arrangements: [arrangement],
-                  defaultArrangementId: arrangement.id,
-                  metadata: { createdAt: now, updatedAt: now, source: 'txt-import' },
-                },
-              ]
-            })
+            try {
+              const text = await file.text()
+              if (!text.trim()) {
+                setQuickEntryError(`"${file.name}" is empty -- nothing to import.`)
+                setShowQuickEntry(true)
+                e.target.value = ''
+                return
+              }
+              setQuickEntryTitle(suggestTitleFromFilename(file.name))
+              setQuickEntryText(text)
+              setQuickEntryError('')
+              setShowQuickEntry(true)
+            } catch {
+              setQuickEntryError(`Could not read "${file.name}" -- the file may be corrupted or in an unsupported format.`)
+              setShowQuickEntry(true)
+            }
             e.target.value = ''
           }}
           style={{ display: 'none' }}
@@ -1280,13 +1265,33 @@ ${simulatedInput}`)
                           onClick={() => {
                             const newTitle = window.prompt('Rename song', song.title)
                             if (newTitle && newTitle.trim()) {
-                              setSongs((prev) => prev.map((s) => (s.id === song.id ? { ...s, title: newTitle.trim() } : s)))
+                              // ALT-STAGE5-1-PART32: preserves id/createdAt,
+                              // updates updatedAt -- previously this only
+                              // changed the title, leaving updatedAt stale.
+                              setSongs((prev) => prev.map((s) => (s.id === song.id ? { ...s, title: newTitle.trim(), metadata: { ...s.metadata, updatedAt: Date.now() } } : s)))
                             }
                             setMoreOptionsForId(null)
                           }}
                           style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '7px 12px', fontSize: 11, color: '#EDEAE0', cursor: 'pointer', fontFamily: 'inherit' }}
                         >
                           Rename
+                        </button>
+                        <button
+                          onClick={() => {
+                            // ALT-STAGE5-1-PART32: same identity-preservation
+                            // pattern as Rename -- id/createdAt untouched,
+                            // updatedAt bumped. Artist stays genuinely
+                            // optional; clearing the prompt sets it blank
+                            // rather than fabricating a placeholder.
+                            const newArtist = window.prompt('Edit artist', song.artist)
+                            if (newArtist !== null) {
+                              setSongs((prev) => prev.map((s) => (s.id === song.id ? { ...s, artist: newArtist.trim(), metadata: { ...s.metadata, updatedAt: Date.now() } } : s)))
+                            }
+                            setMoreOptionsForId(null)
+                          }}
+                          style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '7px 12px', fontSize: 11, color: '#EDEAE0', cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          Edit Artist
                         </button>
                         <button
                           onClick={() => {
