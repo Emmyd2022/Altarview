@@ -50,6 +50,8 @@ export default function StageScreen({
   if (content) {
     return (
       <div
+        role="region"
+        aria-label="FOLDBACK output"
         style={{
           width: '100%',
           height: '100%',
@@ -94,6 +96,8 @@ export default function StageScreen({
 
   return (
     <div
+      role="region"
+      aria-label="FOLDBACK output"
       style={{
         width: '100%',
         height: '100%',

@@ -25,15 +25,17 @@ test.describe('Song Library (Section 20)', () => {
   test('Duplicate creates an independent copy visible in the library', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: /songs/i }).first().click()
-    // "···" more-options menu, per the app's existing pattern.
-    await page.locator('text=Amazing Grace').first().hover()
-    const moreButton = page.getByText('···').first()
-    if (await moreButton.isVisible().catch(() => false)) {
-      await moreButton.click()
-      await page.getByText('Duplicate').click()
-      await expect(page.getByText('Amazing Grace (Copy)')).toBeVisible({ timeout: 5_000 })
-    } else {
-      test.skip(true, 'More-options control not found by this selector -- refine locally.')
-    }
+    // ALT-V1.1-PART-D/M: overflow button now has a stable, per-song
+    // accessible name (aria-label="More options for Amazing Grace",
+    // added this stage) instead of relying on hover + a bare "···"
+    // text-content selector.
+    await page.getByRole('button', { name: 'More options for Amazing Grace' }).click()
+    // ALT-V1.1-PART-D: exact role/name match -- "Merge Duplicates (1)"
+    // and "Duplicate" both contain the substring "Duplicate", so a
+    // non-exact text selector matched both ambiguously. This was
+    // confirmed to be a TEST selector defect, not a product defect --
+    // the menu itself already renders both as clearly distinct items.
+    await page.getByRole('button', { name: 'Duplicate', exact: true }).click()
+    await expect(page.getByText('Amazing Grace (Copy)')).toBeVisible({ timeout: 5_000 })
   })
 })

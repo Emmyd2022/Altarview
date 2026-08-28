@@ -94,6 +94,8 @@ export function OutputStage({
 
   return (
     <div
+      role="region"
+      aria-label={`${badgeLabel} output`}
       style={{
         width: '100%',
         height: '100%',

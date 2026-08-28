@@ -16,8 +16,10 @@ const INVALID_SYNTHETIC_JSON = JSON.stringify({
 test.describe('Settings / Scripture import (Section 19)', () => {
   test('a valid synthetic JSON translation import becomes available', async ({ page }) => {
     await page.goto('/')
-    const settingsLink = page.getByText(/settings/i).first()
-    await settingsLink.click()
+    // ALT-V1.1-PART-D: Settings is icon-only in the sidebar; navigation
+    // now uses its accessible name (aria-label="Settings & Integrations",
+    // added this stage) rather than visible text, which never existed.
+    await page.getByRole('button', { name: /settings/i }).click()
 
     const fileInput = page.locator('input[type="file"]').first()
     await fileInput.setInputFiles({ name: 'v1-test.json', mimeType: 'application/json', buffer: Buffer.from(VALID_SYNTHETIC_JSON) })
@@ -27,7 +29,7 @@ test.describe('Settings / Scripture import (Section 19)', () => {
 
   test('an invalid synthetic import is rejected with no partial data saved', async ({ page }) => {
     await page.goto('/')
-    await page.getByText(/settings/i).first().click()
+    await page.getByRole('button', { name: /settings/i }).click()
 
     const fileInput = page.locator('input[type="file"]').first()
     await fileInput.setInputFiles({ name: 'v1-test-bad.json', mimeType: 'application/json', buffer: Buffer.from(INVALID_SYNTHETIC_JSON) })

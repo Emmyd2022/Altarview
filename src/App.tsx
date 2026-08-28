@@ -196,6 +196,7 @@ function NavButton({
     <button
       onClick={onClick}
       title={item.label}
+      aria-label={item.label}
       style={{
         width: 40,
         height: 36,

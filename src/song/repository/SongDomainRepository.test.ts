@@ -114,11 +114,26 @@ describe('Persistence round-trip (Section 56.16-19)', () => {
   it('a song, its id, section ids, and arrangement all survive a save/getAll round-trip', async () => {
     const repo = makeRepo()
     const song = repo.create({ title: 'Round Trip', artist: 'Artist', sections: [{ label: 'Verse 1', lines: ['line a', 'line b'] }, { label: 'Chorus', lines: ['line c'] }] })
+    const originalUpdatedAt = song.metadata.updatedAt
     await repo.save(song)
     const all = await repo.getAll()
     const loaded = all.find((s) => s.id === song.id)
-    expect(loaded).toEqual(song)
-    expect(loaded?.sections.map((s) => s.id)).toEqual(song.sections.map((s) => s.id))
-    expect(loaded?.arrangements).toEqual(song.arrangements)
+
+    // ALT-V2-CORRECTION-PART2: save() intentionally refreshes
+    // metadata.updatedAt on every call (see SongDomainRepository.save()
+    // -- this is the correct "last persisted" contract, not a defect).
+    // A blind toEqual(song) against the pre-save object was therefore
+    // comparing objects that will almost always legitimately differ by
+    // at least 1ms, making the test flaky/timing-dependent rather than
+    // testing a real invariant. Explicit round-trip invariants instead:
+    expect(loaded?.id).toBe(song.id) // id survives unchanged
+    expect(loaded?.title).toBe(song.title) // title/content survives
+    expect(loaded?.artist).toBe(song.artist)
+    expect(loaded?.sections.map((s) => s.id)).toEqual(song.sections.map((s) => s.id)) // section ids survive unchanged
+    expect(loaded?.sections.map((s) => ({ label: s.label, lines: s.lines }))).toEqual(song.sections.map((s) => ({ label: s.label, lines: s.lines }))) // section labels/lyrics survive
+    expect(loaded?.arrangements).toEqual(song.arrangements) // arrangements survive unchanged
+    expect(loaded?.defaultArrangementId).toBe(song.defaultArrangementId) // default arrangement survives
+    expect(loaded?.metadata.createdAt).toBe(song.metadata.createdAt) // createdAt survives unchanged
+    expect(loaded?.metadata.updatedAt).toBeGreaterThanOrEqual(originalUpdatedAt) // updatedAt is valid and refreshed forward, not backward
   })
 })

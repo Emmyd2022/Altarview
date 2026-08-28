@@ -1293,6 +1293,7 @@ ${simulatedInput}`)
                       onMouseEnter={(e) => (e.currentTarget.style.color = '#EDEAE0')}
                       onMouseLeave={(e) => (e.currentTarget.style.color = '#8F9885')}
                       title="More options"
+                      aria-label={`More options for ${song.title}`}
                     >
                       ···
                     </button>

@@ -182,6 +182,8 @@ export default function StageControlScreen({
             {current.title}
           </div>
           <div
+            role="timer"
+            aria-label="Stage timer"
             style={{
               fontSize: 56,
               fontWeight: 300,
