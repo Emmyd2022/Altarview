@@ -18,3 +18,7 @@ logs/
 # beside it.
 /.plugins/
 /.opencode-skills/
+
+# Playwright generated files
+playwright-report/
+test-results/
